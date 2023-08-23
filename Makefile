@@ -20,10 +20,12 @@ I_FLAGS+=-Ifacil.io
 LD_FLAGS=
 LD_FLAGS+=-lpthread
 LD_FLAGS+=-lm
+LD_FLAGS+=-lpq
 
 BINARY=webserver
 
 SOURCES=main.c
+SOURCES+=src/db.c
 SOURCES+=facil.io/fiobj_ary.c
 SOURCES+=facil.io/fiobj_data.c
 SOURCES+=facil.io/fiobject.c
@@ -86,6 +88,6 @@ clear :
 	@rm -vf *.exe
 	@rm -vf *.o
 
-mem :
-	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./tests
+mem : $(BINARY)
+	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)

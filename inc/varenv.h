@@ -22,13 +22,12 @@ void loadEnvVars(char *dotEnvFile){
 	file[fsize] = '\0';
 	fclose(dotenv);
 
-	char *line = strtok(file, "\n");
+	char *line = strtok(file, "\n\0");
 	if(line == NULL){
 		free(file);
 		return;
 	}
 
-	line = strtok(file, "\n");
 	while(line != NULL){
 		if(
 			(*line == '\0')
@@ -40,7 +39,7 @@ void loadEnvVars(char *dotEnvFile){
 		strncpy(keyvalue, line, 255);
 		putenv(keyvalue);
 
-		line = strtok(NULL, "\n");
+		line = strtok(NULL, "\n\0");
 	}
 	
 	free(file);

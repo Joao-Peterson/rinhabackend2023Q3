@@ -7,14 +7,9 @@
 		{
 			"name": "(gdb) Launch",
 			"type": "cppdbg",
-			"presentation": {
-				"hidden": true,
-				"group": "",
-				"order": 1
-			},
 			"request": "launch",
 			"cwd": "${workspaceFolder}",
-			"program": "./webserver",
+			"program": "${workspaceRoot}/webserver",
 			"args": [],
 			"stopAtEntry": false,
 			"environment": [],
