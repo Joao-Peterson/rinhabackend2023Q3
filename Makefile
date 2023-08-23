@@ -87,6 +87,7 @@ clear :
 	@rm -vrdf $(DIST_DIR)
 	@rm -vf $(BINARY)
 	@rm -vf *.exe
+	@rm -vf */*.o
 	@rm -vf *.o
 
 mem : $(BINARY)

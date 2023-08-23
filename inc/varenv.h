@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-void loadEnvVars(char *dotEnvFile){
+static void loadEnvVars(char *dotEnvFile){
 	if(dotEnvFile == NULL)
 		dotEnvFile = ".env";
 

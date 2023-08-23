@@ -1,13 +1,13 @@
 FROM archlinux:latest as build
 
-WORKDIR /src
+WORKDIR /app
 
-RUN pacman -Syu --noconfirm && pacman -S --noconfirm base-devel gcc-libs gcc postgresql-libs
+RUN pacman -Sy --noconfirm glibc make gcc postgresql-libs
 
 COPY . .
 
-RUN ["make", "release"]
+RUN make release
 
 EXPOSE 5000
 
-ENTRYPOINT [ "webserver" ]
+ENTRYPOINT [ "/app/webserver" ]

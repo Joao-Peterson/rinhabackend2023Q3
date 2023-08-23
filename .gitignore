@@ -1,5 +1,3 @@
-.vscode/
-.build/
 *.o
 webserver
 nginx.conf
@@ -9,8 +7,8 @@ vgcore**
 tests
 
 # Folders
-/.vscode
-/build
+.vscode/
+build/
 
 # Valgrind
 valcore*

@@ -1,139 +1,329 @@
 #include "db.h"
+#include "db_priv.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <libpq-fe.h>
+#include "../inc/cstring.h"
+#include "../facil.io/fiobj.h"
+#include "../facil.io/fiobj_json.h"
 
-// set error Ok and status 0
-void db_error_ok(db_t *db){
-	db->error_msg = "Ok";
-	db->error_code = 0;
+// ------------------------------------------------------------ Database specific --------------------------------------------------
+
+// ------------------------------------------------------------ Postgres
+
+// error map
+static db_error_code_t db_error_code_map_postgres(int code){
+	switch(code){
+		default: 						return db_error_code_unknown;
+		case PGRES_EMPTY_QUERY:      	return db_error_code_ok;	        // PGRES_EMPTY_QUERY = 0, 	/* empty query string was executed */
+		case PGRES_COMMAND_OK:       	return db_error_code_ok;	        // PGRES_COMMAND_OK,      	/* a query command that doesn't return anything was executed properly by the backend */
+		case PGRES_TUPLES_OK:        	return db_error_code_ok;	        // PGRES_TUPLES_OK,       	/* a query command that returns tuples was executed properly by the backend, PGresult contains the result tuples */
+		case PGRES_COPY_OUT:         	return db_error_code_processing;	// PGRES_COPY_OUT,        	/* Copy Out data transfer in progress */
+		case PGRES_COPY_IN:          	return db_error_code_processing;	// PGRES_COPY_IN,         	/* Copy In data transfer in progress */
+		case PGRES_BAD_RESPONSE:     	return db_error_code_fatal;	     	// PGRES_BAD_RESPONSE,   	/* an unexpected response was recv'd from the backend */
+		case PGRES_NONFATAL_ERROR:   	return db_error_code_info;	      	// PGRES_NONFATAL_ERROR, 	/* notice or warning message */
+		case PGRES_FATAL_ERROR:      	return db_error_code_fatal;			// PGRES_FATAL_ERROR,    	/* query failed */
+		case PGRES_COPY_BOTH:        	return db_error_code_processing;	// PGRES_COPY_BOTH,       	/* Copy In/Out data transfer in progress */
+		case PGRES_SINGLE_TUPLE:     	return db_error_code_ok;			// PGRES_SINGLE_TUPLE,    	/* single tuple from larger resultset */
+		case PGRES_PIPELINE_SYNC:    	return db_error_code_processing;	// PGRES_PIPELINE_SYNC,   	/* pipeline synchronization point */
+		case PGRES_PIPELINE_ABORTED: 	return db_error_code_info;	      	// PGRES_PIPELINE_ABORTED	/* Command didn't run because of an abort */
+	}
 }
 
-// set error to message and status 1
-void db_error_readmessage(db_t *db){
-	db->error_msg = PQerrorMessage(db->context);
-	db->error_code = 1;
-}
+static const char *db_connection_string_postgres = "host=%s port=%s user=%s password=%s dbname=%s";
 
-// set error to message and status from database
-void db_error_readmessageStatus(db_t *db){
-	db->error_msg = PQerrorMessage(db->context);
-	db->error_code = PQstatus(db->context);
-}
+// connection function
+static db_error_code_t db_connect_function_postgres(db_t *db){
+	char constring[200] = {0};
+	snprintf(constring, 199, db_connection_string_postgres, 
+		db->host,
+		db->port,
+		db->user,
+		db->password,
+		db->database
+	);
 
-// connect to a db
-db_t *db_connect(db_vendor_t type, char *conString){
-	if(conString == NULL)
-		return NULL;
-	
-	PGconn *conn = PQconnectdb(conString);
+	PGconn *conn = PQconnectdb(constring);
+	db->context = (void*)conn;
 
     if (PQstatus(conn) == CONNECTION_BAD) {
-        fprintf(stderr, "Connection to database failed. Postgres: %s\n", PQerrorMessage(conn));
+		db_error_set_message(db, "Connection to database failed", PQerrorMessage(conn));
+		db->error_code = db_error_code_connection_error;
+		db->state = db_state_not_connected;
 		PQfinish(conn);
-		return NULL;
+		return db->error_code;
     }
 
-	db_t *db = (db_t*)calloc(1, sizeof(db_t));
-
-	db->context = (void*)conn;
-	return db;
+	db_error_set_message(db, "Connection to dabatase suceeded!", PQerrorMessage(conn));
+	db->error_code = db_error_code_ok;
+	db->state = db_state_connected;
+	return db->error_code;
 }
 
-// drop and create new tables
-void db_migrate(db_t *db, bool dropTables){
+// close db connection
+static void db_close_function_postgres(db_t *db){
+	PQfinish(db->context);
+}
+
+// process entries
+static void db_process_entries_postgres(db_t *db, PGresult *res){
+	db->results_count = PQntuples(res);
+	db->results_field_count = PQnfields(res);
+
+	db->results = malloc(sizeof(db_entry_t) * db->results_count);
+	for(size_t i = 0; i < db->results_count; i++){
+		db->results[i].names = malloc(sizeof(char *) * db->results_field_count);
+		db->results[i].values = malloc(sizeof(char *) * db->results_field_count);
+
+		for(size_t j = 0; j < db->results_field_count; j++){
+			db->results[i].names[j] = strdup(PQfname(res, j));
+			db->results[i].values[j] = strdup(PQgetvalue(res, i, j));
+		}
+	}
+}
+
+static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t params_count, va_list params){
 	PGresult *res;
-	
-	char *query;
-	if(dropTables){
-		query = "drop table pessoas;"
-		"create table pessoas("
-			"id uuid primary key,"
-			"apelido varchar(32) unique not null,"
-			"nome varchar(100),"
-			"nascimento varchar(8) not null,"
-			"stack varchar(32)[]"
-        ");";
-	}else{
-		query = "create table pessoas("
-			"id uuid primary key,"
-			"apelido varchar(32) unique not null,"
-			"nome varchar(100),"
-			"nascimento varchar(8) not null,"
-			"stack varchar(32)[]"
-        ");";
-	}
 
-	res = PQexec(db->context, query);
-        
-    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		db_error_readmessage(db);
-    }
+	if(params_count == 0){
+		res = PQexec(db->context, query);
+	}
 	else{
-		db_error_ok(db);
+		char *query_params[params_count];
+
+		for(size_t i = 0; i < params_count; i++){
+			db_param_t param = va_arg(params, db_param_t);
+			query_params[i] = param.value;
+		}
+
+		res = PQexecParams(db->context, query, params_count, NULL, (const char *const *)query_params, NULL, NULL, 0);
 	}
-    
-    PQclear(res);
-}
+	
+	// handle special error cases that the error map cant handle
+	if(res == NULL){
+		db->error_code = db_error_code_unknown;
+		db_error_set_message(db, "Query response was null", PQresultErrorMessage(res));
+	}
+	else{
+		db->error_code = db_error_code_map(db->vendor, PQresultStatus(res));
+		char *msg = PQresultErrorMessage(res);
 
-// entries
-entries_t *processEntries(PGresult *res){
-	size_t size_cols = PQnfields(res);
-	size_t size_entries = PQntuples(res);
-
-	entries_t *entries = malloc(sizeof(entries_t));
-	entries->amount = size_entries;
-	entries->entries = malloc(sizeof(entry_t*) * size_entries);
-	for(size_t i = 0; i < size_entries; i++){
-		entries->entries[i] = malloc(sizeof(entry_t));
-
-		entries->entries[i]->size = size_cols;
-		entries->entries[i]->names = malloc(sizeof(char *) * size_cols);
-		entries->entries[i]->value = malloc(sizeof(char *) * size_cols);
-
-		for(size_t j = 0; j < size_cols; j++){
-			entries->entries[i]->names[j] = PQfname(res, j);
-			entries->entries[i]->value[j] = PQgetvalue(res, i, j);
+		if(db->error_code == db_error_code_fatal){									// remap code to invalid type
+			if(strstr(msg, "invalid input syntax") != NULL){
+				db_error_set_message(db, "Query has invalid param syntax", msg);
+				db->error_code = db_error_code_invalid_type;
+			}
+			else if(strstr(msg, "violates unique constraint") != NULL){				// remap unique
+				db_error_set_message(db, "Entry already in database", msg);
+				db->error_code = db_error_code_unique_constrain_violation;
+			}
+			else if(strstr(msg, "too long") != NULL){				// remap unique
+				db_error_set_message(db, "Invalid range for field", msg);
+				db->error_code = db_error_code_invalid_range;
+			}
+			else if(strstr(msg, "too short") != NULL){				// remap unique
+				db_error_set_message(db, "Invalid range for field", msg);
+				db->error_code = db_error_code_invalid_range;
+			}
+		}
+		else if(PQntuples(res) == 0){												// remap to zero results
+			db_error_set_message(db, "Query returned 0 results", msg);
+			db->error_code = db_error_code_zero_results;
+		}
+		else if(db->error_code == db_error_code_ok){								// complement ok message
+			db_error_set_message(db, "Query executed successfully", msg);
 		}
 	}
 
-	return entries;
+	if(db->error_code == db_error_code_ok){
+		db_process_entries_postgres(db, res);
+	}
+	
+    PQclear(res);
+	return db->error_code;
 }
 
-// delete
-void deleteEntries(entries_t *entries){
-	for(size_t i = 0; i < entries->amount; i++){
-		free(entries->entries[i]->names);
-		free(entries->entries[i]->value);
-		free(entries->entries[i]);
+// ------------------------------------------------------------ Invalid database default
+
+// default connection function
+static db_error_code_t db_default_function_invalid(db_t *db){
+	db_error_set_message(db, "Invalid database vendor", "invalid");
+	db->error_code = db_error_code_invalid_db;
+	db->state = db_state_invalid_db;
+	return db->error_code;
+}
+
+// ------------------------------------------------------------ Maps ---------------------------------------------------------------
+
+// vendor name map
+static const char *db_vendor_name_map(db_vendor_t vendor){
+	switch(vendor){
+		default: return "Invalid DB vendor";
+		case db_vendor_postgres: 
+		case db_vendor_postgres15: 
+			return "Postgres 15";
+	}
+}
+
+// map error codes
+db_error_code_t db_error_code_map(db_vendor_t vendor, int code){
+	switch(vendor){
+		default: 						return db_error_code_invalid_db;
+		case db_vendor_postgres: 		
+		case db_vendor_postgres15: 		
+			return db_error_code_map_postgres(code);
+	}
+}
+
+typedef db_error_code_t (*db_connect_function_t)(db_t *);
+
+// connection functions
+db_error_code_t db_connect_function_map(db_t *db){
+	switch(db->vendor){
+		default: 
+			return db_default_function_invalid(db);
+			
+		case db_vendor_postgres:
+		case db_vendor_postgres15:
+			return db_connect_function_postgres(db);
 	}
 
-	free(entries->entries);
-	free(entries);
+	return db_error_code_unknown;
+}
+
+// close db map
+void db_close_function_map(db_t *db){
+	db_clean_results(db);
+	free(db->host);
+	free(db->port);
+	free(db->database);
+	free(db->user);
+	free(db->password);
+	free(db->role);
+	
+	// context free
+	switch(db->vendor){
+		default: return;
+			
+		case db_vendor_postgres:
+		case db_vendor_postgres15:
+			db_close_function_postgres(db);
+	}
+
+	free(db);
+}
+
+// exec query map
+static db_error_code_t db_exec_function_map(db_t *db, char *query, size_t params_count, va_list params){
+	db_clean_results(db);
+
+	switch(db->vendor){
+		default: 
+			return db_default_function_invalid(db);
+			
+		case db_vendor_postgres:
+		case db_vendor_postgres15:
+			return db_exec_function_postgres(db, query, params_count, params);
+	}
+}
+
+// ------------------------------------------------------------ Error handlng ------------------------------------------------------
+
+void db_error_set_message(db_t *db, char *msg, char *vendor_msg){
+	snprintf(db->error_msg, DB_ERROR_MSG_LEN, "%s. (%s): %s\n", msg, db_vendor_name_map(db->vendor), vendor_msg);
+}
+
+// ------------------------------------------------------------- Public calls ------------------------------------------------------
+
+// create db object
+db_t *db_create(db_vendor_t type, char *host, char *port, char *database, char *user, char *password, char *role){
+	db_t *db = (db_t*)calloc(1, sizeof(db_t));
+	db->host     	= strdup(host);
+	db->port     	= strdup(port);
+	db->database 	= strdup(database);
+	db->user     	= strdup(user);
+	db->password 	= strdup(password);
+	db->role     	= strdup(role);
+	db->state 		= db_state_not_connected;
+
+	db->results_count = -1;
+	db->results_field_count = -1;
+	
+	return db;
+}
+
+// connect to database
+db_error_code_t db_connect(db_t *db){
+	return db_connect_function_map(db);
+}
+
+// new param for query
+db_param_t db_param_new(db_type_t type, char *value, size_t size){
+	db_param_t param = {
+		.type = type,
+		.value = value,
+		.size = size != 0 ? size : strlen(value)
+	};
+
+	return param; 
+}
+
+// exec query
+db_error_code_t db_exec(db_t *db, char *query, size_t params_count, ...){
+	db_state_depends_connection(db);
+	
+	va_list params;
+	va_start(params, params_count);
+	db_error_code_t code = db_exec_function_map(db, query, params_count, params);
+	va_end(params);
+	return code;
+}
+
+// clean
+void db_clean_results(db_t *db){
+	if(db->results_count == -1) return;
+
+	for(size_t i = 0; i < db->results_count; i++){
+		for(size_t j = 0; j < db->results_field_count; j++){
+			free(db->results[i].names[j]);
+			free(db->results[i].values[j]);
+		}
+		free(db->results[i].names);
+		free(db->results[i].values);
+	}
+	
+	db->results_count = -1;
+	db->results_field_count = -1;
+
+	free(db->results);
+}
+
+// close db connection
+void db_close(db_t *db){
+	db_close_function_map(db);
 }
 
 // print
-void db_print_entries(db_t *db){
-	if(db->last_results == NULL)
-		return;
+void db_print_results(db_t *db){
+	if(db->results_count < 1) return;
 
-	for(size_t i = 0; i < db->last_results->amount; i++){
+	for(size_t i = 0; i < db->results_count; i++){
 		// columns names
 		if(i == 0){
-			for(size_t j = 0; j < db->last_results->entries[0]->size; j++){
-				printf("| %s ", db->last_results->entries[0]->names[j]);
+			for(size_t j = 0; j < db->results_count; j++){
+				printf("| %s ", db->results[0].names[j]);
 
-				if(j == (db->last_results->entries[0]->size - 1)){
+				if(j == (db->results_count - 1)){
 					printf("|\n");
 				}
 			}	
 		}
 
 		// entry
-		for(size_t j = 0; j < db->last_results->entries[i]->size; j++){
-			printf("| %s ", db->last_results->entries[i]->value[j]);
+		for(size_t j = 0; j < db->results_field_count; j++){
+			printf("| %s ", db->results[i].values[j]);
 
-			if(j == (db->last_results->entries[i]->size - 1)){
+			if(j == (db->results_field_count - 1)){
 				printf("|\n");
 			}
 		}	
@@ -141,11 +331,10 @@ void db_print_entries(db_t *db){
 }
 
 // print josn
-FIOBJ db_json_entries(db_t *db, bool squash_if_single){
-	if(db->last_results == NULL)
-		return;
+char *db_json_entries(db_t *db, bool squash_if_single){
+	if(db->results_count < 0) return FIOBJ_INVALID;
 
-	bool trail = !(squash_if_single && db->last_results->amount == 1);
+	bool trail = !(squash_if_single && db->results_count == 1);
 
 	FIOBJ json;
 
@@ -154,21 +343,21 @@ FIOBJ db_json_entries(db_t *db, bool squash_if_single){
 	else
 		json = fiobj_str_new("{", 1);
 
-	for(size_t i = 0; i < db->last_results->amount; i++){
+	for(size_t i = 0; i < db->results_count; i++){
 		if(trail)
 			fiobj_str_write(json, "{", 1);
 	
-		for(size_t j = 0; j < db->last_results->entries[i]->size; j++){
-			fiobj_str_printf(json, "\"%s\":\"%s\"", db->last_results->entries[i]->names[j], db->last_results->entries[i]->value[j]);
+		for(size_t j = 0; j < db->results_field_count; j++){
+			fiobj_str_printf(json, "\"%s\":\"%s\"", db->results[i].names[j], db->results[i].values[j]);
 
-			if(j != (db->last_results->entries[i]->size - 1))
+			if(j != (db->results_field_count - 1))
 				fiobj_str_write(json, ",", 1);
 		}	
 
 		if(trail)
 			fiobj_str_write(json, "}", 1);
 
-		if(i != (db->last_results->amount - 1))
+		if(i != (db->results_count - 1))
 			fiobj_str_write(json, ",", 1);
 	}
 	if(trail)
@@ -176,134 +365,12 @@ FIOBJ db_json_entries(db_t *db, bool squash_if_single){
 	else
 		fiobj_str_write(json, "}", 1);
 
-	return json;
+	char *ret = strdup(fiobj_obj2cstr(json).data);
+	fiobj_free(json);
+	return ret;
 }
 
-// insert model into db
-void db_insert(db_t *db, char *nome, char *apelido, char *nascimento, char *stack){
-	PGresult *res;
-
-	char *query = "insert into pessoas "
-	 	"(id, apelido, nome, nascimento, stack) "
-	 	"values("
-			"gen_random_uuid(),"
-			"$1,"
-			"$2,"
-			"$3,"
-			"$4"
-		") "
-		"returning id";
-
-	char *params[4] = {apelido, nome, nascimento, stack};
-
-	res = PQexecParams(db->context, query, 4, NULL, params, NULL, NULL, 0);
-        
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		db_error_readmessage(db);
-    }
-	else{
-		db_error_ok(db);
-
-		if(db->last_results != NULL)
-			deleteEntries(db->last_results);
-
-		db->last_results = processEntries(res);
-	}	
-    
-    PQclear(res);
-}
-
-// search
-void db_select_search(db_t *db, char *searchParam, unsigned int limit){
-	PGresult *res;
-
-	char *query = "select * "
-		"from pessoas "
-		"where ("
-			"apelido ilike '%' || $1 || '%' or "
-			"nome ilike '%' || $1 || '%' or "
-			"$1 = any(stack)"
-		") limit $2;";
-
-
-	char limitstr[10];
-	snprintf(limitstr, 9, "%d", limit);
-
-	char *params[2] = {searchParam, limitstr};
-
-	res = PQexecParams(db->context, query, 2, NULL, params, NULL, NULL, 0);
-        
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		db_error_readmessage(db);
-		if(db->last_results != NULL)
-			deleteEntries(db->last_results);
-    }
-	else{
-		db_error_ok(db);
-
-		if(db->last_results != NULL)
-			deleteEntries(db->last_results);
-
-		db->last_results = processEntries(res);
-	}
-    
-    PQclear(res);
-}
-
-// search
-void db_select_uuid(db_t *db, char *uuid){
-	PGresult *res;
-
-	char *query = "select * "
-		"from pessoas "
-		"where id = $1";
-
-	char *params[1] = {uuid};
-
-	res = PQexecParams(db->context, query, 1, NULL, params, NULL, NULL, 0);
-        
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		db_error_readmessage(db);
-    }
-	else{
-		db_error_ok(db);
-
-		if(db->last_results != NULL)
-			deleteEntries(db->last_results);
-
-		db->last_results = processEntries(res);
-	}
-    
-    PQclear(res);
-}
-
-// count
-void db_count(db_t *db){
-	PGresult *res;
-
-	char *query = "select count(*) from pessoas;";
-
-	res = PQexec(db->context, query);
-        
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		db_error_readmessage(db);
-    }
-	else{
-		db_error_ok(db);
-
-		if(db->last_results != NULL)
-			deleteEntries(db->last_results);
-
-		db->last_results = processEntries(res);
-	}
-    
-    PQclear(res);
-}
-
-// close db connection
-void db_close(db_t *db){
-    PQfinish(db->context);
-	if(db->last_results != NULL)
-		deleteEntries(db->last_results);
-	free(db);
+char *db_results_read(db_t *db, uint32_t entry, uint32_t field){
+	if(db->results_count == -1) return NULL;
+	return db->results[entry].values[field];
 }

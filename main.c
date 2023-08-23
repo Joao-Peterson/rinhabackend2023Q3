@@ -5,6 +5,7 @@
 #include "inc/varenv.h"
 #include "src/utils.h"
 #include "src/db.h"
+#include "models/pessoas.h"
 
 // handlers
 void on_request(http_s *h);
@@ -28,12 +29,27 @@ int main(int argq, char **argv, char **envp){
 	loadEnvVars(NULL);
 
 	// db connection
-	db = db_connect(db_vendor_postgres, getenv("DB_STRING"));
-	if(db == NULL){
-		printf("Could not connect to database\n");
+	db = db_create(db_vendor_postgres, 
+		getenv("DB_HOST"),
+		getenv("DB_PORT"),
+		getenv("DB_DATABASE"),
+		getenv("DB_USER"),
+		getenv("DB_PASSWORD"),
+		getenv("DB_ROLE")
+	);
+
+	if(db_connect(db)){
+		fprintf(stderr, db->error_msg);
 		exit(1);
 	}else{
-		printf("Connected to database!\n");
+		printf(db->error_msg);
+	}
+
+	printf("Migrating...\n");
+	if(pessoa_migrate(db, true)){
+		printf("Migration failed. Database: %s", db->error_msg);
+	}else{
+		printf("Migration suceeded!\n");
 	}
 
 	char *port = getenv("SERVER_PORT");
@@ -90,14 +106,12 @@ void on_get(http_s *h){
 
 // count
 void on_get_count(http_s *h){
-	db_count(db);
-
-	if(db->error_code){
-		printf("On GET count failed. DB query failed. Postgress: %s\n", db->error_msg);
+	if(pessoas_count(db)){
+		printf("On GET count failed. DB query failed. Database: %s\n", db->error_msg);
 		http_send_error(h, http_status_code_InternalServerError);
 	}
 	else{
-		char *count = db->last_results->entries[0]->value[0];
+		char *count = db_results_read(db, 0, 0);
 		http_send_body(h, count, strlen(count));
 	}
 }
@@ -118,55 +132,72 @@ void on_get_search(http_s *h){
 	char *tquery = fiobj_obj2cstr(value).data;	
 
 	// db call
-	db_select_search(db, tquery, 50);
-	if(db->error_code){
-		printf("On GET search failed. DB query failed. Postgress: %s\n", db->error_msg);
-		http_send_error(h, http_status_code_InternalServerError);
-	}
-	else{
-		FIOBJ json = db_json_entries(db, false);
-		fio_str_info_s info = fiobj_obj2cstr(json);
-		http_send_body(h, info.data, info.len);
-		fiobj_free(json);
+	switch(pessoas_select_search(db, tquery, 50)){
+		case db_error_code_zero_results:
+			http_send_body(h, "[]", 2);
+			break;			
+
+		case db_error_code_ok:
+		{
+			char *json = db_json_entries(db, false);
+			http_send_body(h, json, strlen(json));
+			free(json);
+		}
+		break;			
+
+		default:
+			printf("On GET search failed. DB query failed. Database: %s\n", db->error_msg);
+			http_send_error(h, http_status_code_InternalServerError);
 	}
 }
 
 // get uuid
 void on_get_uuid(http_s *h){
-	if(fiobj_str_substr(h->path, "/pessoas")){									// has sub path pessoas
-		char *pathstr = fiobj_obj2cstr(h->path).data;
-		char *cursor = pathstr + strlen(pathstr);								// get uuid
-		while(cursor > pathstr){
-			if(*cursor == '/')
-				break;
-
-			cursor--;
-		}
-
-		if(cursor == pathstr){													// no uuid
-			h->status = http_status_code_NotFound;
-			http_send_body(h, "Not found", 9);
-		}
-		else{																	// if valid uuid
-			char *uuid = cursor + 1;
-
-			// db call
-			db_select_uuid(db, uuid);
-			if(db->error_code){
-				printf("On GET uuid failed. DB query failed. Postgress: %s\n", db->error_msg);
-				http_send_error(h, http_status_code_InternalServerError);
-			}
-			else{
-				FIOBJ json = db_json_entries(db, true);
-				fio_str_info_s info = fiobj_obj2cstr(json);
-				http_send_body(h, info.data, info.len);
-				fiobj_free(json);
-			}
-		}
-	}
-	else{																		// not /pessoas path
+	if(!fiobj_str_substr(h->path, "/pessoas")){										// not /pessoas/* path
 		h->status = http_status_code_NotFound;
 		http_send_body(h, "Not found", 9);
+		return;
+	}
+
+	char *pathstr = fiobj_obj2cstr(h->path).data;
+	char *cursor = pathstr + strlen(pathstr);										// get uuid
+	while(cursor > pathstr){
+		if(*cursor == '/')
+			break;
+
+		cursor--;
+	}
+
+	if(cursor == pathstr){															// no uuid
+		h->status = http_status_code_NotFound;
+		http_send_body(h, "Not found", 9);
+		return;
+	}
+
+	char *uuid = cursor + 1;
+
+	// db call
+	switch(pessoas_select_uuid(db, uuid)){
+		case db_error_code_zero_results:
+			http_send_error(h, http_status_code_NotFound);
+			break;
+
+		case db_error_code_invalid_type:
+			h->status = http_status_code_UnprocessableEntity;
+			http_send_body(h, db->error_msg, strlen(db->error_msg));
+			break;
+
+		case db_error_code_ok:
+		{
+			char *json = db_json_entries(db, true);
+			http_send_body(h, json, strlen(json));
+			free(json);
+		}
+		break;
+
+		default:
+			http_send_error(h, http_status_code_InternalServerError);
+			break;
 	}
 }
 
@@ -175,64 +206,79 @@ void on_post(http_s *h){
 	if(http_parse_body(h)){
 		h->status = http_status_code_BadRequest;								// search without query
 		http_send_body(h, "Bad request", 11);
+		return;
 	}
-	else{
-		// get values
-		FIOBJ key = fiobj_str_new("", 1);
 
-		fiobj_str_clear(key);
-		fiobj_str_write(key, "apelido", 7);
-		char *apelido   	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
-		printf("apelido: %s\n", apelido);
+	// get values
+	FIOBJ key = fiobj_str_new("", 1);
 
-		fiobj_str_clear(key);
-		fiobj_str_write(key, "nome", 4);
-		char *nome      	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
-		printf("nome: %s\n", nome);
+	fiobj_str_clear(key);
+	fiobj_str_write(key, "apelido", 7);
+	char *apelido   	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
 
-		fiobj_str_clear(key);
-		fiobj_str_write(key, "nascimento", 10);
-		char *nascimento	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
-		printf("nascimento: %s\n", nascimento);
+	fiobj_str_clear(key);
+	fiobj_str_write(key, "nome", 4);
+	char *nome      	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
 
-		fiobj_str_clear(key);
-		fiobj_str_write(key, "stack", 5);
+	fiobj_str_clear(key);
+	fiobj_str_write(key, "nascimento", 10);
+	char *nascimento	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
 
-		FIOBJ stack = fiobj_str_new("{", 1);
-		FIOBJ stackobj = fiobj_hash_get(h->params, key);
-		size_t stacksize = fiobj_ary_count(stackobj);
-		
-		// stack value
-		for(size_t i = 0; i < stacksize; i++){
-			fiobj_str_concat(stack, fiobj_ary_index(stackobj, i));
+	fiobj_str_clear(key);
+	fiobj_str_write(key, "stack", 5);
 
-			if(i != (stacksize - 1))
-				fiobj_str_write(stack, ",", 1);
-		}
-		fiobj_str_write(stack, "}", 1);
+	FIOBJ stack = fiobj_str_new("{", 1);
+	FIOBJ stackobj = fiobj_hash_get(h->params, key);
+	size_t stacksize = fiobj_ary_count(stackobj);
+	
+	// stack value
+	for(size_t i = 0; i < stacksize; i++){
+		fiobj_str_concat(stack, fiobj_ary_index(stackobj, i));
 
-		char *stackstr = fiobj_obj2cstr(stack).data;
-		printf("stack: %s\n", fiobj_obj2cstr(stack).data);
+		if(i != (stacksize - 1))
+			fiobj_str_write(stack, ",", 1);
+	}
+	fiobj_str_write(stack, "}", 1);
 
-		// db call
-		db_insert(db, nome, apelido, nascimento, stackstr);
-		if(db->error_code){
-			printf("On POST failed. DB Insert failed. Postgress: %s\n", db->error_msg);
-			http_send_error(h, http_status_code_UnprocessableEntity);
-		}
-		else{
+	char *stackstr = fiobj_obj2cstr(stack).data;
+
+	// db call
+	switch(pessoas_insert(db, nome, apelido, nascimento, stackstr)){
+		case db_error_code_ok:
+		{
+			// header Location
 			FIOBJ name = fiobj_str_new("Location", 8);
-			FIOBJ value = fiobj_str_new("", 1);
-			fiobj_str_printf(value, "/pessoas/%s", db->last_results->entries[0]->value[0]);
+			FIOBJ value = fiobj_str_new(NULL, 0);
+			fiobj_str_printf(value, "/pessoas/%s", db_results_read(db, 0, 0));
 			http_set_header(h, name, value);
 
-			fiobj_free(name);
+			// json body id
+			FIOBJ json = fiobj_str_new(NULL, 0);
+			fiobj_str_printf(json, "{\"id\":\"%s\"}", db_results_read(db, 0, 0));
+			fio_str_info_s jsonstr = fiobj_obj2cstr(json);
+			
 			h->status = http_status_code_Created;
-			http_finish(h);
-		}
+			http_send_body(h, jsonstr.data, jsonstr.len);
 
-		// free stuff
-		fiobj_free(stack);
-		fiobj_free(key);
+			fiobj_free(name);
+			fiobj_free(json);
+		}
+		break;
+
+		case db_error_code_invalid_range:
+		case db_error_code_invalid_type:
+		case db_error_code_unique_constrain_violation:
+			h->status = http_status_code_UnprocessableEntity;
+			http_send_body(h, db->error_msg, strlen(db->error_msg));
+			break;
+
+		default:
+			http_send_error(h, http_status_code_InternalServerError);
+			break;
 	}
+
+	// free stuff
+	fiobj_free(stack);
+	fiobj_free(key);
 }
+
