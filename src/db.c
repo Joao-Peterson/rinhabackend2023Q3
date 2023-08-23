@@ -76,34 +76,6 @@ void db_migrate(db_t *db, bool dropTables){
     PQclear(res);
 }
 
-// insert model into db
-void db_insert(db_t *db, char *nome, char *apelido, char *nascimento, char *stack){
-	PGresult *res;
-
-	char *query = "insert into pessoas "
-	 	"(id, apelido, nome, nascimento, stack) "
-	 	"values("
-			"gen_random_uuid(),"
-			"$1,"
-			"$2,"
-			"$3,"
-			"$4"
-		");";
-
-	char *params[4] = {apelido, nome, nascimento, stack};
-
-	res = PQexecParams(db->context, query, 4, NULL, params, NULL, NULL, 0);
-        
-    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		db_error_readmessage(db);
-    }
-	else{
-		db_error_ok(db);
-	}
-    
-    PQclear(res);
-}
-
 // entries
 entries_t *processEntries(PGresult *res){
 	size_t size_cols = PQnfields(res);
@@ -166,6 +138,79 @@ void db_print_entries(db_t *db){
 			}
 		}	
 	}
+}
+
+// print josn
+FIOBJ db_json_entries(db_t *db, bool squash_if_single){
+	if(db->last_results == NULL)
+		return;
+
+	bool trail = !(squash_if_single && db->last_results->amount == 1);
+
+	FIOBJ json;
+
+	if(trail)
+		json = fiobj_str_new("[", 1);
+	else
+		json = fiobj_str_new("{", 1);
+
+	for(size_t i = 0; i < db->last_results->amount; i++){
+		if(trail)
+			fiobj_str_write(json, "{", 1);
+	
+		for(size_t j = 0; j < db->last_results->entries[i]->size; j++){
+			fiobj_str_printf(json, "\"%s\":\"%s\"", db->last_results->entries[i]->names[j], db->last_results->entries[i]->value[j]);
+
+			if(j != (db->last_results->entries[i]->size - 1))
+				fiobj_str_write(json, ",", 1);
+		}	
+
+		if(trail)
+			fiobj_str_write(json, "}", 1);
+
+		if(i != (db->last_results->amount - 1))
+			fiobj_str_write(json, ",", 1);
+	}
+	if(trail)
+		fiobj_str_write(json, "]", 1);
+	else
+		fiobj_str_write(json, "}", 1);
+
+	return json;
+}
+
+// insert model into db
+void db_insert(db_t *db, char *nome, char *apelido, char *nascimento, char *stack){
+	PGresult *res;
+
+	char *query = "insert into pessoas "
+	 	"(id, apelido, nome, nascimento, stack) "
+	 	"values("
+			"gen_random_uuid(),"
+			"$1,"
+			"$2,"
+			"$3,"
+			"$4"
+		") "
+		"returning id";
+
+	char *params[4] = {apelido, nome, nascimento, stack};
+
+	res = PQexecParams(db->context, query, 4, NULL, params, NULL, NULL, 0);
+        
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		db_error_readmessage(db);
+    }
+	else{
+		db_error_ok(db);
+
+		if(db->last_results != NULL)
+			deleteEntries(db->last_results);
+
+		db->last_results = processEntries(res);
+	}	
+    
+    PQclear(res);
 }
 
 // search

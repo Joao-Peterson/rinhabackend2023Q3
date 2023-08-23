@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include "../facil.io/fiobj.h"
+#include "../facil.io/fiobj_json.h"
 
 typedef enum{
 	db_vendor_postgres,
@@ -48,5 +50,7 @@ void db_print_entries(db_t *db);
 void db_select_uuid(db_t *db, char *uuid);
 
 void db_count(db_t *db);
+
+FIOBJ db_json_entries(db_t *db, bool squash_if_single);
 
 #endif
