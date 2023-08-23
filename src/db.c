@@ -158,10 +158,10 @@ void db_print_entries(db_t *db){
 		}
 
 		// entry
-		for(size_t j = 0; j < db->last_results->entries[0]->size; j++){
-			printf("| %s ", db->last_results->entries[0]->value[j]);
+		for(size_t j = 0; j < db->last_results->entries[i]->size; j++){
+			printf("| %s ", db->last_results->entries[i]->value[j]);
 
-			if(j == (db->last_results->entries[0]->size - 1)){
+			if(j == (db->last_results->entries[i]->size - 1)){
 				printf("|\n");
 			}
 		}	
