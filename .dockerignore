@@ -10,6 +10,7 @@ tests
 # Folders
 .vscode/
 build/
+db/
 
 # Valgrind
 valcore*
