@@ -227,6 +227,18 @@ static db_error_code_t db_exec_function_map(db_t *db, char *query, size_t params
 	}
 }
 
+// port map 
+static char *db_default_port_map(db_vendor_t vendor){
+	switch(vendor){
+		db_vendor_postgres:
+		db_vendor_postgres15:
+			return "5432";
+
+		default:
+			return "3306";
+	}
+}
+
 // ------------------------------------------------------------ Error handlng ------------------------------------------------------
 
 void db_error_set_message(db_t *db, char *msg, char *vendor_msg){
@@ -237,13 +249,21 @@ void db_error_set_message(db_t *db, char *msg, char *vendor_msg){
 
 // create db object
 db_t *db_create(db_vendor_t type, char *host, char *port, char *database, char *user, char *password, char *role){
+	if(
+		(host == NULL) ||
+		(database == NULL) ||
+		(user == NULL)
+	){
+		return NULL;
+	}
+
 	db_t *db = (db_t*)calloc(1, sizeof(db_t));
 	db->host     	= strdup(host);
-	db->port     	= strdup(port);
+	db->port     	= port != NULL ? strdup(port) : strdup(db_default_port_map(type));
 	db->database 	= strdup(database);
 	db->user     	= strdup(user);
-	db->password 	= strdup(password);
-	db->role     	= strdup(role);
+	db->password 	= password != NULL ? strdup(password) : strdup("");
+	db->role     	= role != NULL ? strdup(role) : strdup("");
 	db->state 		= db_state_not_connected;
 
 	db->results_count = -1;

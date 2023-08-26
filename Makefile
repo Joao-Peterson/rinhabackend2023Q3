@@ -93,3 +93,12 @@ clear :
 mem : $(BINARY)
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
+
+image :
+	sudo docker build -t petersonsheff/rinhabackend2023q3capi .
+
+compose :
+	sudo docker-compose up -d
+
+down :
+	sudo docker-compose down

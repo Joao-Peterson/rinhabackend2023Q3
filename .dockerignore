@@ -2,6 +2,7 @@
 webserver
 nginx.conf
 .env
+Dockerfile
 
 vgcore**
 tests

@@ -38,18 +38,16 @@ int main(int argq, char **argv, char **envp){
 		getenv("DB_ROLE")
 	);
 
+	if(db == NULL){
+		printf("Could not create database object. Host, database or user were passed as NULL\n");
+		exit(2);
+	}
+
 	if(db_connect(db)){
-		fprintf(stderr, db->error_msg);
+		printf(db->error_msg);
 		exit(1);
 	}else{
 		printf(db->error_msg);
-	}
-
-	printf("Migrating...\n");
-	if(pessoa_migrate(db, true)){
-		printf("Migration failed. Database: %s", db->error_msg);
-	}else{
-		printf("Migration suceeded!\n");
 	}
 
 	char *port = getenv("SERVER_PORT");
