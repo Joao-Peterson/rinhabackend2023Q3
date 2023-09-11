@@ -26,7 +26,7 @@ db_error_code_t pessoa_migrate(db_t *db, bool dropTables){
 }
 
 // insert model into db
-db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascimento, char *stack){
+db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascimento, size_t stack_count, char **stack){
 	char *query = "insert into pessoas "
 	 	"(id, apelido, nome, nascimento, stack) "
 	 	"values("
@@ -39,10 +39,10 @@ db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascim
 		"returning id";
 
 	return db_exec(db, query, 4, 
-		db_param_new(db_type_string, apelido, 0),
-		db_param_new(db_type_string, nome, 0),
-		db_param_new(db_type_string, nascimento, 0),
-		db_param_new(db_type_string, stack, 0)
+		db_param_string(apelido),
+		db_param_string(nome),
+		db_param_string(nascimento),
+		db_param_string_array(stack, stack_count)
 	);
 }
 
@@ -57,12 +57,9 @@ db_error_code_t pessoas_select_search(db_t *db, char *searchParam, unsigned int 
 		") limit $2;";
 
 
-	char limitstr[10];
-	snprintf(limitstr, 9, "%d", limit);
-
 	return db_exec(db, query, 2, 
-		db_param_new(db_type_string, searchParam, 0),
-		db_param_new(db_type_string, limitstr, 0)
+		db_param_string(searchParam),
+		db_param_integer((int*)&limit)
 	);
 }
 
@@ -73,7 +70,7 @@ db_error_code_t pessoas_select_uuid(db_t *db, char *uuid){
 		"where id = $1";
 
 	return db_exec(db, query, 1, 
-		db_param_new(db_type_string, uuid, 0)
+		db_param_string(uuid)
 	);
 }
 

@@ -27,6 +27,7 @@ BINARY=webserver
 SOURCES=main.c
 SOURCES+=src/db.c
 SOURCES+=src/utils.c
+SOURCES+=src/string+.c
 SOURCES+=facil.io/fiobj_ary.c
 SOURCES+=facil.io/fiobj_data.c
 SOURCES+=facil.io/fiobject.c

@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "facil.io/http.h"
-#include "inc/varenv.h"
+#include "src/varenv.h"
 #include "src/utils.h"
 #include "src/db.h"
 #include "models/pessoas.h"
@@ -225,23 +225,17 @@ void on_post(http_s *h){
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "stack", 5);
 
-	FIOBJ stack = fiobj_str_new("{", 1);
 	FIOBJ stackobj = fiobj_hash_get(h->params, key);
 	size_t stacksize = fiobj_ary_count(stackobj);
+	char *stack[stacksize];
 	
 	// stack value
 	for(size_t i = 0; i < stacksize; i++){
-		fiobj_str_concat(stack, fiobj_ary_index(stackobj, i));
-
-		if(i != (stacksize - 1))
-			fiobj_str_write(stack, ",", 1);
+		stack[i] = fiobj_obj2cstr(fiobj_ary_index(stackobj, i)).data;
 	}
-	fiobj_str_write(stack, "}", 1);
-
-	char *stackstr = fiobj_obj2cstr(stack).data;
 
 	// db call
-	switch(pessoas_insert(db, nome, apelido, nascimento, stackstr)){
+	switch(pessoas_insert(db, nome, apelido, nascimento, stacksize, stack)){
 		case db_error_code_ok:
 		{
 			// header Location
@@ -276,7 +270,6 @@ void on_post(http_s *h){
 	}
 
 	// free stuff
-	fiobj_free(stack);
 	fiobj_free(key);
 }
 
