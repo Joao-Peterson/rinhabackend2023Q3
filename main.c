@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include "src/string+.h"
 #include "facil.io/http.h"
 #include "src/varenv.h"
 #include "src/utils.h"
@@ -109,8 +110,11 @@ void on_get_count(http_s *h){
 		http_send_error(h, http_status_code_InternalServerError);
 	}
 	else{
-		char *count = db_results_read(db, 0, 0);
-		http_send_body(h, count, strlen(count));
+		int *count = db_results_read_integer(db, 0, 0);
+		string *response = string_sprint("%d", 15, count != NULL ? *count : -1);
+		http_send_body(h, response->raw, response->len);
+
+		string_destroy(response);
 	}
 }
 
@@ -241,12 +245,12 @@ void on_post(http_s *h){
 			// header Location
 			FIOBJ name = fiobj_str_new("Location", 8);
 			FIOBJ value = fiobj_str_new(NULL, 0);
-			fiobj_str_printf(value, "/pessoas/%s", db_results_read(db, 0, 0));
+			fiobj_str_printf(value, "/pessoas/%s", db_results_read_string(db, 0, 0));
 			http_set_header(h, name, value);
 
 			// json body id
 			FIOBJ json = fiobj_str_new(NULL, 0);
-			fiobj_str_printf(json, "{\"id\":\"%s\"}", db_results_read(db, 0, 0));
+			fiobj_str_printf(json, "{\"id\":\"%s\"}", db_results_read_string(db, 0, 0));
 			fio_str_info_s jsonstr = fiobj_obj2cstr(json);
 			
 			h->status = http_status_code_Created;

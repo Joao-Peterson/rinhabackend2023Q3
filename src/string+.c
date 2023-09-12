@@ -57,7 +57,7 @@ string *string_wrap(char *raw, bool take_ownership){
 
 string *string_vsprint(const char *fmt, size_t max_size, va_list args){
 	char *buffer = malloc(max_size);
-	vsnprintf(buffer, max_size - 1, fmt, args);
+	vsnprintf(buffer, max_size, fmt, args);
 	string *str = string_from(buffer);
 	free(buffer);
 	return str;
@@ -99,7 +99,7 @@ void _string_cat_raw(string *dest, char *src, size_t srclen){
 	if(dest == NULL || src == NULL) return;
 
 	size_t len = dest->len + srclen;
-	if(dest->len == 0){
+	if(dest->allocated == 0){
 		dest->allocated = len + STRING_ALLOCATION_CHUNK;
 		dest->raw = calloc(dest->allocated, sizeof(char));
 		dest->len = len;

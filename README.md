@@ -8,6 +8,7 @@ Queria fazer no pêlo mesmo, mas como estava em cima da hora vou fazer com o [fa
 
 - Redis Cache
 - Correct search on databae, remove LIKE type search
+- Docker compose network to type host
 - Transaction to database
   - data integrity with multiple instaces
   - performance

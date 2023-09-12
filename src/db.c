@@ -4,226 +4,7 @@
 #include <stdio.h>
 #include <libpq-fe.h>
 #include "string+.h"
-#include "../facil.io/fiobj.h"
-#include "../facil.io/fiobj_json.h"
-
-// ------------------------------------------------------------ Database specific --------------------------------------------------
-
-// ------------------------------------------------------------ Postgres
-
-// error map
-static db_error_code_t db_error_code_map_postgres(int code){
-	switch(code){
-		default: 						return db_error_code_unknown;
-		case PGRES_EMPTY_QUERY:      	return db_error_code_ok;	        // PGRES_EMPTY_QUERY = 0, 	/* empty query string was executed */
-		case PGRES_COMMAND_OK:       	return db_error_code_ok;	        // PGRES_COMMAND_OK,      	/* a query command that doesn't return anything was executed properly by the backend */
-		case PGRES_TUPLES_OK:        	return db_error_code_ok;	        // PGRES_TUPLES_OK,       	/* a query command that returns tuples was executed properly by the backend, PGresult contains the result tuples */
-		case PGRES_COPY_OUT:         	return db_error_code_processing;	// PGRES_COPY_OUT,        	/* Copy Out data transfer in progress */
-		case PGRES_COPY_IN:          	return db_error_code_processing;	// PGRES_COPY_IN,         	/* Copy In data transfer in progress */
-		case PGRES_BAD_RESPONSE:     	return db_error_code_fatal;	     	// PGRES_BAD_RESPONSE,   	/* an unexpected response was recv'd from the backend */
-		case PGRES_NONFATAL_ERROR:   	return db_error_code_info;	      	// PGRES_NONFATAL_ERROR, 	/* notice or warning message */
-		case PGRES_FATAL_ERROR:      	return db_error_code_fatal;			// PGRES_FATAL_ERROR,    	/* query failed */
-		case PGRES_COPY_BOTH:        	return db_error_code_processing;	// PGRES_COPY_BOTH,       	/* Copy In/Out data transfer in progress */
-		case PGRES_SINGLE_TUPLE:     	return db_error_code_ok;			// PGRES_SINGLE_TUPLE,    	/* single tuple from larger resultset */
-		case PGRES_PIPELINE_SYNC:    	return db_error_code_processing;	// PGRES_PIPELINE_SYNC,   	/* pipeline synchronization point */
-		case PGRES_PIPELINE_ABORTED: 	return db_error_code_info;	      	// PGRES_PIPELINE_ABORTED	/* Command didn't run because of an abort */
-	}
-}
-
-static const char *db_connection_string_postgres = "host=%s port=%s user=%s password=%s dbname=%s";
-
-// connection function
-static db_error_code_t db_connect_function_postgres(db_t *db){
-	char constring[200] = {0};
-	snprintf(constring, 199, db_connection_string_postgres, 
-		db->host,
-		db->port,
-		db->user,
-		db->password,
-		db->database
-	);
-
-	PGconn *conn = PQconnectdb(constring);
-	db->context = (void*)conn;
-
-    if (PQstatus(conn) == CONNECTION_BAD) {
-		db_error_set_message(db, "Connection to database failed", PQerrorMessage(conn));
-		db->error_code = db_error_code_connection_error;
-		db->state = db_state_not_connected;
-		PQfinish(conn);
-		return db->error_code;
-    }
-
-	db_error_set_message(db, "Connection to dabatase suceeded!", PQerrorMessage(conn));
-	db->error_code = db_error_code_ok;
-	db->state = db_state_connected;
-	return db->error_code;
-}
-
-// close db connection
-static void db_close_function_postgres(db_t *db){
-	PQfinish(db->context);
-}
-
-// process entries
-static void db_process_entries_postgres(db_t *db, PGresult *res){
-	db->results_count = PQntuples(res);
-	db->results_field_count = PQnfields(res);
-
-	db->results = malloc(sizeof(db_entry_t) * db->results_count);
-	for(size_t i = 0; i < db->results_count; i++){
-		db->results[i].names = malloc(sizeof(char *) * db->results_field_count);
-		db->results[i].values = malloc(sizeof(char *) * db->results_field_count);
-
-		for(size_t j = 0; j < db->results_field_count; j++){
-			db->results[i].names[j] = strdup(PQfname(res, j));
-			db->results[i].values[j] = strdup(PQgetvalue(res, i, j));
-		}
-	}
-}
-
-static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t params_count, va_list params){
-	PGresult *res;
-
-	if(params_count == 0){															// no params
-		res = PQexec(db->context, query);
-	}
-	else{																			// with params
-		char *query_params[params_count];
-		string *values[params_count];
-
-		// process params 
-		for(size_t i = 0; i < params_count; i++){									// for each param
-			db_param_t param = va_arg(params, db_param_t);
-			values[i] = string_new();
-
-			if(param.type == db_type_invalid){										// invalid type
-				db->error_code = db_error_code_invalid_type;
-				db_error_set_message(db, "An input param for the query was invalid", "");
-				return db_error_code_invalid_type;
-			}
-
-			if(param.is_array){														// for array type
-				string_cat_raw(values[i], "{");
-				
-				for(size_t i = 0; i < param.count; i++){
-
-					if(i != 0)
-						string_cat_raw(values[i], ",");
-
-					switch(param.type){
-						case db_type_integer:										// integer array
-							string_cat_fmt(values[i], "%d", 25, ((int**)param.value)[i]);
-						break;
-
-						case db_type_bool:   										// bool array
-							string_cat_fmt(values[i], "%s", 6, ((bool**)param.value)[i] ? "true" : "false");
-						break;
-
-						case db_type_float:  										// float array
-							string_cat_fmt(values[i], "%f", 50, ((float**)param.value)[i]);
-						break;
-
-						case db_type_string: 										// string array
-							string_cat_fmt(values[i], "%s", strlen(((char**)param.value)[i]) + 1, ((char**)param.value)[i]);
-						break;
-
-						// TODO add blob array type param
-						case db_type_blob:   										// blob array
-						break;
-
-						default:
-						case db_type_invalid:
-						case db_type_null:
-							break;
-					}
-				}
-				string_cat_raw(values[i], "}");
-			}
-			else{																	// for simple type
-				switch(param.type){
-					case db_type_integer:											// integer
-						string_cat_fmt(values[i], "%d", 25, *((int*)param.value));
-					break;
-
-					case db_type_bool:   											// bool
-						string_cat_fmt(values[i], "%s", 6, *((bool*)param.value) ? "true" : "false");
-					break;
-
-					case db_type_float:  											// float
-						string_cat_fmt(values[i], "%f", 50, *((float*)param.value));
-					break;
-
-					case db_type_string: 											// string
-						string_cat_fmt(values[i], "%s", strlen((char*)param.value) + 1, (char*)param.value);
-					break;
-
-					// TODO add blob type param
-					case db_type_blob:												// blob
-					break;
-
-					default:
-					case db_type_invalid:
-					case db_type_null:   											// null
-						string_cat_fmt(values[i], "%s", 5, "null");
-					break;
-				}
-			}
-
-			query_params[i] = values[i]->raw;
-		}
-
-		res =																		// exec query 
-			PQexecParams(db->context, query, params_count, NULL, (const char *const *)query_params, NULL, NULL, 0);
-
-		for(size_t i = 0; i < params_count; i++){									// free values
-			string_destroy(values[i]);
-		}
-	}
-	
-	// handle special error cases that the error map cant handle
-	if(res == NULL){
-		db->error_code = db_error_code_unknown;
-		db_error_set_message(db, "Query response was null", PQresultErrorMessage(res));
-	}
-	else{
-		db->error_code = db_error_code_map(db->vendor, PQresultStatus(res));
-		char *msg = PQresultErrorMessage(res);
-
-		if(db->error_code == db_error_code_fatal){									// remap code to invalid type
-			if(strstr(msg, "invalid input syntax") != NULL){
-				db_error_set_message(db, "Query has invalid param syntax", msg);
-				db->error_code = db_error_code_invalid_type;
-			}
-			else if(strstr(msg, "violates unique constraint") != NULL){				// remap unique
-				db_error_set_message(db, "Entry already in database", msg);
-				db->error_code = db_error_code_unique_constrain_violation;
-			}
-			else if(strstr(msg, "too long") != NULL){				// remap unique
-				db_error_set_message(db, "Invalid range for field", msg);
-				db->error_code = db_error_code_invalid_range;
-			}
-			else if(strstr(msg, "too short") != NULL){				// remap unique
-				db_error_set_message(db, "Invalid range for field", msg);
-				db->error_code = db_error_code_invalid_range;
-			}
-		}
-		else if(PQntuples(res) == 0){												// remap to zero results
-			db_error_set_message(db, "Query returned 0 results", msg);
-			db->error_code = db_error_code_zero_results;
-		}
-		else if(db->error_code == db_error_code_ok){								// complement ok message
-			db_error_set_message(db, "Query executed successfully", msg);
-		}
-	}
-
-	if(db->error_code == db_error_code_ok){
-		db_process_entries_postgres(db, res);
-	}
-	
-    PQclear(res);
-	return db->error_code;
-}
+#include "db_postgres.h"
 
 // ------------------------------------------------------------ Invalid database default
 
@@ -235,7 +16,7 @@ static db_error_code_t db_default_function_invalid(db_t *db){
 	return db->error_code;
 }
 
-// ------------------------------------------------------------ Maps ---------------------------------------------------------------
+// ------------------------------------------------------------ Database maps ------------------------------------------------------
 
 // vendor name map
 static const char *db_vendor_name_map(db_vendor_t vendor){
@@ -275,7 +56,7 @@ db_error_code_t db_connect_function_map(db_t *db){
 
 // close db map
 void db_close_function_map(db_t *db){
-	db_clean_results(db);
+	db_results_clear(db);
 	free(db->host);
 	free(db->port);
 	free(db->database);
@@ -297,7 +78,7 @@ void db_close_function_map(db_t *db){
 
 // exec query map
 static db_error_code_t db_exec_function_map(db_t *db, char *query, size_t params_count, va_list params){
-	db_clean_results(db);
+	db_results_clear(db);
 
 	switch(db->vendor){
 		default: 
@@ -522,22 +303,49 @@ db_error_code_t db_exec(db_t *db, char *query, size_t params_count, ...){
 }
 
 // clean
-void db_clean_results(db_t *db){
+void db_results_clear(db_t *db){
 	if(db->results_count == -1) return;
 
 	for(size_t i = 0; i < db->results_count; i++){
 		for(size_t j = 0; j < db->results_field_count; j++){
-			free(db->results[i].names[j]);
-			free(db->results[i].values[j]);
+			switch(db->results[i][j].type){
+				default:
+					break;
+
+				case db_type_integer_array:
+					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
+						free( ( (int**)(db->results[i][j].value) ) [elem]);
+					break;
+					
+				case db_type_bool_array:
+					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
+						free( ( (bool**)(db->results[i][j].value) ) [elem]);
+					break;
+
+				case db_type_float_array:
+					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
+						free( ( (float**)(db->results[i][j].value) ) [elem]);
+					break;
+
+				case db_type_string_array:
+					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
+						free( ( (char**)(db->results[i][j].value) ) [elem]);
+					break;
+
+				// case db_type_blob_array:
+			}
+
+			free(db->results[i][j].value);
 		}
-		free(db->results[i].names);
-		free(db->results[i].values);
+
+		free(db->results[i]);
+		free(db->result_fields[i]);
 	}
 	
+	free(db->results);
+	free(db->result_fields);
 	db->results_count = -1;
 	db->results_field_count = -1;
-
-	free(db->results);
 }
 
 // close db connection
@@ -552,8 +360,8 @@ void db_print_results(db_t *db){
 	for(size_t i = 0; i < db->results_count; i++){
 		// columns names
 		if(i == 0){
-			for(size_t j = 0; j < db->results_count; j++){
-				printf("| %s ", db->results[0].names[j]);
+			for(size_t j = 0; j < db->results_field_count; j++){
+				printf("| %s ", db->result_fields[j]);
 
 				if(j == (db->results_count - 1)){
 					printf("|\n");
@@ -563,7 +371,8 @@ void db_print_results(db_t *db){
 
 		// entry
 		for(size_t j = 0; j < db->results_field_count; j++){
-			printf("| %s ", db->results[i].values[j]);
+			// TODO add type switch
+			// printf("| %s ", db->results[i][j].);
 
 			if(j == (db->results_field_count - 1)){
 				printf("|\n");
@@ -574,45 +383,201 @@ void db_print_results(db_t *db){
 
 // print josn
 char *db_json_entries(db_t *db, bool squash_if_single){
-	if(db->results_count < 0) return FIOBJ_INVALID;
+	if(db->results_count < 0) return NULL;
 
 	bool trail = !(squash_if_single && db->results_count == 1);
 
-	FIOBJ json;
+	string *json = string_new();
 
 	if(trail)
-		json = fiobj_str_new("[", 1);
+		string_cat_raw(json, "[");
 	else
-		json = fiobj_str_new("{", 1);
+		string_cat_raw(json, "{");
 
 	for(size_t i = 0; i < db->results_count; i++){
 		if(trail)
-			fiobj_str_write(json, "{", 1);
+			string_cat_raw(json, "{");
 	
 		for(size_t j = 0; j < db->results_field_count; j++){
-			fiobj_str_printf(json, "\"%s\":\"%s\"", db->results[i].names[j], db->results[i].values[j]);
 
-			if(j != (db->results_field_count - 1))
-				fiobj_str_write(json, ",", 1);
+			if(j != 0)
+				string_cat_raw(json, ",");
+
+			// name
+			string_cat_fmt(json, "\"%s\":", 50, db->result_fields[j]);
+			
+			// value
+			switch(db->results[i][j].type){
+				default:
+				case db_type_invalid:
+				case db_type_null:
+					string_cat_fmt(json, "null", 5);
+					break;
+
+				case db_type_integer:
+					string_cat_fmt(json, "%d", 15, *db_results_read_integer(db, i, j));
+					break;
+
+				case db_type_bool:
+					string_cat_fmt(json, "%d", 15, *db_results_read_bool(db, i, j));
+					break;
+					
+
+				case db_type_float:
+					string_cat_fmt(json, "%f", 20, *db_results_read_float(db, i, j));
+					break;
+
+				case db_type_string:
+					string_cat_fmt(json, "\"%s\"", 255, db_results_read_string(db, i, j));
+					break;
+
+				// case db_type_blob:
+
+				case db_type_integer_array:
+				{
+					uint32_t count;
+					int **array = db_results_read_integer_array(db, i, j, &count);
+
+					string_cat_raw(json, "[");
+					for(uint32_t k = 0; k < count; k++){
+						if(k != 0)
+							string_cat_raw(json, ",");
+
+						string_cat_fmt(json, "%d", 15, *(array[k]));
+					}
+
+					string_cat_raw(json, "]");
+				}
+				break;
+
+				case db_type_string_array:
+				{
+					uint32_t count;
+					char **array = db_results_read_string_array(db, i, j, &count);
+
+					string_cat_raw(json, "[");
+					for(uint32_t k = 0; k < count; k++){
+						if(k != 0)
+							string_cat_raw(json, ",");
+
+						string_cat_fmt(json, "\"%s\"", 255, array[k]);
+					}
+
+					string_cat_raw(json, "]");
+				}
+				break;
+
+				// case db_type_bool_array:
+				// case db_type_float_array:
+
+				// case db_type_blob_array:
+			}
 		}	
 
 		if(trail)
-			fiobj_str_write(json, "}", 1);
+			string_cat_raw(json, "}");
 
 		if(i != (db->results_count - 1))
-			fiobj_str_write(json, ",", 1);
+			string_cat_raw(json, ",");
 	}
-	if(trail)
-		fiobj_str_write(json, "]", 1);
-	else
-		fiobj_str_write(json, "}", 1);
 
-	char *ret = strdup(fiobj_obj2cstr(json).data);
-	fiobj_free(json);
+	if(trail)
+		string_cat_raw(json, "]");
+	else
+		string_cat_raw(json, "}");
+
+	char *ret = strdup(json->raw);
+	string_destroy(json);
+
 	return ret;
 }
 
-char *db_results_read(db_t *db, uint32_t entry, uint32_t field){
+db_entry_t *db_results_get_entry(db_t *db, uint32_t entry, uint32_t field){
 	if(db->results_count == -1) return NULL;
-	return db->results[entry].values[field];
+	if(entry >= db->results_count) return NULL;
+	if(field >= db->results_field_count) return NULL;
+	if(db->results[entry][field].type == db_type_invalid) return NULL;
+
+	return &(db->results[entry][field]);
+}
+
+db_entry_t *db_results_get_entry_tc(db_t *db, uint32_t entry, uint32_t field, db_type_t type_check){
+	db_entry_t *value = db_results_get_entry(db, entry, field);
+	if(value->type != type_check) return NULL;
+	return value;
+}
+
+void *db_results_get_value(db_t *db, uint32_t entry, uint32_t field, db_type_t type_check){
+	db_entry_t *value = db_results_get_entry_tc(db, entry, field, type_check);
+	if(value == NULL) return NULL;
+	return value->value;
+}
+
+void *db_results_get_array_value(db_t *db, uint32_t entry, uint32_t field, db_type_t type_check, uint32_t *length){
+	db_entry_t *value = db_results_get_entry_tc(db, entry, field, type_check);
+	if(value == NULL){
+		if(length != NULL) *length = 0;
+		return NULL;
+	}
+
+	if(length != NULL) *length = value->count;
+	return value->value;
+}
+
+int *db_results_read_integer(db_t *db, uint32_t entry, uint32_t field){
+	return (int*)db_results_get_value(db, entry, field, db_type_integer);
+}
+
+bool *db_results_read_bool(db_t *db, uint32_t entry, uint32_t field){
+	return (bool*)db_results_get_value(db, entry, field, db_type_bool);
+}
+
+float *db_results_read_float(db_t *db, uint32_t entry, uint32_t field){
+	return (float*)db_results_get_value(db, entry, field, db_type_float);
+}
+
+char *db_results_read_string(db_t *db, uint32_t entry, uint32_t field){
+	return (char*)db_results_get_value(db, entry, field, db_type_string);
+}
+
+void *db_results_read_blob(db_t *db, uint32_t entry, uint32_t field){
+	return (void*)db_results_get_value(db, entry, field, db_type_blob);
+}
+
+int **db_results_read_integer_array(db_t *db, uint32_t entry, uint32_t field, uint32_t *length){
+	return (int**)db_results_get_array_value(db, entry, field, db_type_integer_array, length);
+}
+
+char **db_results_read_string_array(db_t *db, uint32_t entry, uint32_t field, uint32_t *length){
+	return (char**)db_results_get_array_value(db, entry, field, db_type_string_array, length);
+}
+
+// db_results_read_bool_array(db_t *db, uint32_t entry, uint32_t field){
+
+// }
+
+// db_results_read_float_array(db_t *db, uint32_t entry, uint32_t field){
+
+// }
+
+// db_results_read_blob_array(db_t *db, uint32_t entry, uint32_t field){
+
+// }
+
+bool db_results_isvalid(db_t *db, uint32_t entry, uint32_t field){
+	db_entry_t *value = db_results_get_entry(db, entry, field);
+	if(value == NULL) return false;
+	return true;
+}
+
+bool db_results_isnull(db_t *db, uint32_t entry, uint32_t field){
+	db_entry_t *value = db_results_get_entry(db, entry, field);
+	if(value == NULL) return false;
+	return db->results[entry][field].type == db_type_null;
+}
+
+bool db_results_isvalid_and_notnull(db_t *db, uint32_t entry, uint32_t field){
+	db_entry_t *value = db_results_get_entry(db, entry, field);
+	if(value == NULL) return false;
+	return (db->results[entry][field].type != db_type_null);
 }

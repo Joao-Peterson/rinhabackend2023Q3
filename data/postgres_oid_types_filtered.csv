@@ -1,0 +1,193 @@
+oid  ,typname                      ,typcategory
+  22 ,int2vector                   ,A
+  30 ,oidvector                    ,A
+  16 ,bool                         ,B
+  71 ,pg_type                      ,C
+  75 ,pg_attribute                 ,C
+  81 ,pg_proc                      ,C
+  83 ,pg_class                     ,C
+1082 ,date                         ,D
+1083 ,time                         ,D
+1114 ,timestamp                    ,D
+1184 ,timestamptz                  ,D
+1266 ,timetz                       ,D
+ 600 ,point                        ,G
+ 601 ,lseg                         ,G
+ 602 ,path                         ,G
+ 603 ,box                          ,G
+ 604 ,polygon                      ,G
+ 628 ,line                         ,G
+ 718 ,circle                       ,G
+ 869 ,inet                         ,I
+ 650 ,cidr                         ,I
+  20 ,int8                         ,N
+  21 ,int2                         ,N
+  23 ,int4                         ,N
+  24 ,regproc                      ,N
+  26 ,oid                          ,N
+ 700 ,float4                       ,N
+ 701 ,float8                       ,N
+ 790 ,money                        ,N
+1700 ,numeric                      ,N
+2202 ,regprocedure                 ,N
+2203 ,regoper                      ,N
+2204 ,regoperator                  ,N
+2205 ,regclass                     ,N
+4191 ,regcollation                 ,N
+2206 ,regtype                      ,N
+4096 ,regrole                      ,N
+4089 ,regnamespace                 ,N
+3734 ,regconfig                    ,N
+3769 ,regdictionary                ,N
+  32 ,pg_ddl_command               ,P
+2249 ,record                       ,P
+2275 ,cstring                      ,P
+2276 ,any                          ,P
+2277 ,anyarray                     ,P
+2278 ,void                         ,P
+2279 ,trigger                      ,P
+3838 ,event_trigger                ,P
+2280 ,language_handler             ,P
+2281 ,internal                     ,P
+2283 ,anyelement                   ,P
+2776 ,anynonarray                  ,P
+3500 ,anyenum                      ,P
+3115 ,fdw_handler                  ,P
+ 325 ,index_am_handler             ,P
+3310 ,tsm_handler                  ,P
+ 269 ,table_am_handler             ,P
+3831 ,anyrange                     ,P
+5077 ,anycompatible                ,P
+5078 ,anycompatiblearray           ,P
+5079 ,anycompatiblenonarray        ,P
+5080 ,anycompatiblerange           ,P
+4537 ,anymultirange                ,P
+4538 ,anycompatiblemultirange      ,P
+3904 ,int4range                    ,R
+3906 ,numrange                     ,R
+3908 ,tsrange                      ,R
+3910 ,tstzrange                    ,R
+3912 ,daterange                    ,R
+3926 ,int8range                    ,R
+4451 ,int4multirange               ,R
+4532 ,nummultirange                ,R
+4533 ,tsmultirange                 ,R
+4534 ,tstzmultirange               ,R
+4535 ,datemultirange               ,R
+4536 ,int8multirange               ,R
+  19 ,name                         ,S
+  25 ,text                         ,S
+1042 ,bpchar                       ,S
+1043 ,varchar                      ,S
+1186 ,interval                     ,T
+  17 ,bytea                        ,U
+  27 ,tid                          ,U
+  28 ,xid                          ,U
+  29 ,cid                          ,U
+ 114 ,json                         ,U
+ 142 ,xml                          ,U
+5069 ,xid8                         ,U
+ 829 ,macaddr                      ,U
+ 774 ,macaddr8                     ,U
+1033 ,aclitem                      ,U
+1790 ,refcursor                    ,U
+2950 ,uuid                         ,U
+3220 ,pg_lsn                       ,U
+3614 ,tsvector                     ,U
+3642 ,gtsvector                    ,U
+3615 ,tsquery                      ,U
+3802 ,jsonb                        ,U
+4072 ,jsonpath                     ,U
+2970 ,txid_snapshot                ,U
+5038 ,pg_snapshot                  ,U
+1560 ,bit                          ,V
+1562 ,varbit                       ,V
+ 705 ,unknown                      ,X
+  18 ,char                         ,Z
+ 194 ,pg_node_tree                 ,Z
+3361 ,pg_ndistinct                 ,Z
+3402 ,pg_dependencies              ,Z
+5017 ,pg_mcv_list                  ,Z
+4600 ,pg_brin_bloom_summary        ,Z
+4601 ,pg_brin_minmax_multi_summary ,Z
+1000 ,_bool                        ,A
+1001 ,_bytea                       ,A
+1002 ,_char                        ,A
+1003 ,_name                        ,A
+1016 ,_int8                        ,A
+1005 ,_int2                        ,A
+1006 ,_int2vector                  ,A
+1007 ,_int4                        ,A
+1008 ,_regproc                     ,A
+1009 ,_text                        ,A
+1028 ,_oid                         ,A
+1010 ,_tid                         ,A
+1011 ,_xid                         ,A
+1012 ,_cid                         ,A
+1013 ,_oidvector                   ,A
+ 210 ,_pg_type                     ,A
+ 270 ,_pg_attribute                ,A
+ 272 ,_pg_proc                     ,A
+ 273 ,_pg_class                    ,A
+ 199 ,_json                        ,A
+ 143 ,_xml                         ,A
+ 271 ,_xid8                        ,A
+1017 ,_point                       ,A
+1018 ,_lseg                        ,A
+1019 ,_path                        ,A
+1020 ,_box                         ,A
+1027 ,_polygon                     ,A
+ 629 ,_line                        ,A
+1021 ,_float4                      ,A
+1022 ,_float8                      ,A
+ 719 ,_circle                      ,A
+ 791 ,_money                       ,A
+1040 ,_macaddr                     ,A
+1041 ,_inet                        ,A
+ 651 ,_cidr                        ,A
+ 775 ,_macaddr8                    ,A
+1034 ,_aclitem                     ,A
+1014 ,_bpchar                      ,A
+1015 ,_varchar                     ,A
+1182 ,_date                        ,A
+1183 ,_time                        ,A
+1115 ,_timestamp                   ,A
+1185 ,_timestamptz                 ,A
+1187 ,_interval                    ,A
+1270 ,_timetz                      ,A
+1561 ,_bit                         ,A
+1563 ,_varbit                      ,A
+1231 ,_numeric                     ,A
+2201 ,_refcursor                   ,A
+2207 ,_regprocedure                ,A
+2208 ,_regoper                     ,A
+2209 ,_regoperator                 ,A
+2210 ,_regclass                    ,A
+4192 ,_regcollation                ,A
+2211 ,_regtype                     ,A
+4097 ,_regrole                     ,A
+4090 ,_regnamespace                ,A
+2951 ,_uuid                        ,A
+3221 ,_pg_lsn                      ,A
+3643 ,_tsvector                    ,A
+3644 ,_gtsvector                   ,A
+3645 ,_tsquery                     ,A
+3735 ,_regconfig                   ,A
+3770 ,_regdictionary               ,A
+3807 ,_jsonb                       ,A
+4073 ,_jsonpath                    ,A
+2949 ,_txid_snapshot               ,A
+5039 ,_pg_snapshot                 ,A
+3905 ,_int4range                   ,A
+3907 ,_numrange                    ,A
+3909 ,_tsrange                     ,A
+3911 ,_tstzrange                   ,A
+3913 ,_daterange                   ,A
+3927 ,_int8range                   ,A
+6150 ,_int4multirange              ,A
+6151 ,_nummultirange               ,A
+6152 ,_tsmultirange                ,A
+6153 ,_tstzmultirange              ,A
+6155 ,_datemultirange              ,A
+6157 ,_int8multirange              ,A
+1263 ,_cstring                     ,A
