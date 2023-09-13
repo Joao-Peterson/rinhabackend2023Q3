@@ -214,32 +214,51 @@ void on_post(http_s *h){
 	// get values
 	FIOBJ key = fiobj_str_new("", 1);
 
+	// apelido
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "apelido", 7);
 	char *apelido   	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
 
+	// nome
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "nome", 4);
 	char *nome      	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
 
+	// nascimento
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "nascimento", 10);
 	char *nascimento	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
 
+	// stack
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "stack", 5);
 
 	FIOBJ stackobj = fiobj_hash_get(h->params, key);
-	size_t stacksize = fiobj_ary_count(stackobj);
-	char *stack[stacksize];
-	
-	// stack value
-	for(size_t i = 0; i < stacksize; i++){
-		stack[i] = fiobj_obj2cstr(fiobj_ary_index(stackobj, i)).data;
+	size_t stacksize;
+	db_error_code_t dbcode;
+
+	if(
+		(stackobj == FIOBJ_INVALID) ||
+		(FIOBJ_IS_NULL(stackobj)) ||
+		(fiobj_ary_count(stackobj) == 0)
+	){																				// if no stack
+		stacksize = 0;
+		dbcode = pessoas_insert(db, nome, apelido, nascimento, stacksize, NULL);
+	}
+	else{																			// with valid stack
+		stacksize = fiobj_ary_count(stackobj);
+		char *stack[stacksize];
+
+		// stack value
+		for(size_t i = 0; i < stacksize; i++){
+			stack[i] = fiobj_obj2cstr(fiobj_ary_index(stackobj, i)).data;
+		}
+
+		dbcode = pessoas_insert(db, nome, apelido, nascimento, stacksize, stack);
 	}
 
 	// db call
-	switch(pessoas_insert(db, nome, apelido, nascimento, stacksize, stack)){
+	switch(dbcode){
 		case db_error_code_ok:
 		{
 			// header Location
@@ -269,7 +288,8 @@ void on_post(http_s *h){
 			break;
 
 		default:
-			http_send_error(h, http_status_code_InternalServerError);
+			h->status = http_status_code_InternalServerError;
+			http_send_body(h, db->error_msg, strlen(db->error_msg));
 			break;
 	}
 

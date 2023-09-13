@@ -718,29 +718,27 @@ static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t p
 						string_cat_raw(values[i], ",");
 
 					switch(param.type){
-						case db_type_integer:										// integer array
+						case db_type_integer_array:										// integer array
 							string_cat_fmt(values[i], "%d", 25, ((int**)param.value)[j]);
 						break;
 
-						case db_type_bool:   										// bool array
+						case db_type_bool_array:   										// bool array
 							string_cat_fmt(values[i], "%s", 6, ((bool**)param.value)[j] ? "true" : "false");
 						break;
 
-						case db_type_float:  										// float array
+						case db_type_float_array:  										// float array
 							string_cat_fmt(values[i], "%f", 50, ((float**)param.value)[j]);
 						break;
 
-						case db_type_string: 										// string array
+						case db_type_string_array: 										// string array
 							string_cat_fmt(values[i], "%s", strlen(((char**)param.value)[j]) + 1, ((char**)param.value)[j]);
 						break;
 
 						// TODO add blob array type param
-						case db_type_blob:   										// blob array
+						case db_type_blob_array:   										// blob array
 						break;
 
 						default:
-						case db_type_invalid:
-						case db_type_null:
 							break;
 					}
 				}
@@ -812,6 +810,9 @@ static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t p
 			else if(strstr(msg, "too short") != NULL){				// remap unique
 				db_error_set_message(db, "Invalid range for field", msg);
 				db->error_code = db_error_code_invalid_range;
+			}
+			else{
+				db_error_set_message(db, "Fatal error", msg);
 			}
 		}
 		else if(PQntuples(res) == 0){												// remap to zero results

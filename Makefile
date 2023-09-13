@@ -93,7 +93,7 @@ clear :
 	@rm -vf */*.o
 	@rm -vf *.o
 
-mem : test
+mem : $(BINARY)
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
 

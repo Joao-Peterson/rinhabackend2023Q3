@@ -4,58 +4,40 @@ networks:
   apinet:
     driver: bridge
 
-services:
+x-api-config: &api-config 
+  environment:
+    - SERVER_PORT=5000
+    - SERVER_THREADS=50
+    - DB_HOST=db
+    - DB_PORT=5432
+    - DB_DATABASE=capi
+    - DB_USER=capi
+    - DB_PASSWORD=rinhadegalo
+  restart: always
+  depends_on:
+    db:
+      condition: service_healthy
+  expose:
+    - 5000
+  networks:
+    - apinet
+  deploy:
+    resources:
+      limits:
+        cpus: '0.25'
+        memory: '0.5GB'
 
+services:
   api1:
     image: petersonsheff/rinhabackend2023q3capi
     hostname: api1
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - SERVER_PORT=5000
-      - SERVER_THREADS=10
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_DATABASE=capi
-      - DB_USER=capi
-      - DB_PASSWORD=rinhadegalo
-    expose:
-      - 5000
-    networks:
-      - apinet
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: '0.5GB'
+    <<: *api-config
 
   api2:
     image: petersonsheff/rinhabackend2023q3capi
     hostname: api2
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - SERVER_PORT=5000
-      - SERVER_THREADS=10
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_DATABASE=capi
-      - DB_USER=capi
-      - DB_PASSWORD=rinhadegalo
-    expose:
-      - 5000
-    networks:
-      - apinet
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: '0.5GB'
-
+    <<: *api-config
+    
   nginx: # Load Balancer
     image: nginx:latest
     volumes:
@@ -66,7 +48,7 @@ services:
     networks:
       - apinet
     ports:
-      - "5000:5000"
+      - "9999:5000"
     deploy:
       resources:
         limits:

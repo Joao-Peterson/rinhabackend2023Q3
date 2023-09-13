@@ -145,7 +145,7 @@ db_param_t db_param_new(db_type_t type, bool is_array, size_t count, void *value
 	bool is_invalid = false;
 	
 	// chech for null params on arrays
-	if(is_array){
+	if(is_array && count > 0){
 		switch(type){
 			case db_type_integer:
 			{
@@ -204,10 +204,9 @@ db_param_t db_param_new(db_type_t type, bool is_array, size_t count, void *value
 		}
 	}
 
-	// check null and empty
+	// checks
 	if(
-		(value == NULL) || 
-		(size == 0) ||
+		(!is_array && size == 0) ||
 		(is_invalid)
 	){
 		db_param_t invalid = {
@@ -226,7 +225,7 @@ db_param_t db_param_new(db_type_t type, bool is_array, size_t count, void *value
 		.type = type,
 		.is_array = is_array,
 		.count = count,
-		.value = value,
+		.value = is_array && count == 0 ? NULL : value,
 		.size = size
 	};
 
@@ -266,22 +265,22 @@ db_param_t db_param_null(){
 
 // new integer array param for query
 db_param_t db_param_integer_array(int **value, size_t count){
-	return db_param_new(db_type_integer, true, count, (void*)value, sizeof(int)); 
+	return db_param_new(db_type_integer_array, true, count, (void*)value, sizeof(int)); 
 }
 
 // new bool array param for query	
 db_param_t db_param_bool_array(bool **value, size_t count){
-	return db_param_new(db_type_bool, true, count, (void*)value, sizeof(bool)); 
+	return db_param_new(db_type_bool_array, true, count, (void*)value, sizeof(bool)); 
 }
 
 // new float array param for query	
 db_param_t db_param_float_array(float **value, size_t count){
-	return db_param_new(db_type_float, true, count, (void*)value, sizeof(float)); 
+	return db_param_new(db_type_float_array, true, count, (void*)value, sizeof(float)); 
 }
 
 // new string array param for query	
 db_param_t db_param_string_array(char **value, size_t count){
-	return db_param_new(db_type_string, true, count, (void*)value, 1); 
+	return db_param_new(db_type_string_array, true, count, (void*)value, 1); 
 }
 
 // TODO add blob array type param

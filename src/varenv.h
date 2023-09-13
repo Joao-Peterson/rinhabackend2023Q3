@@ -29,11 +29,8 @@ static void loadEnvVars(char *dotEnvFile){
 	}
 
 	while(line != NULL){
-		if(
-			(*line == '\0')
-		){
+		if(*line == '\0')
 			break;
-		}
 
 		char *keyvalue = calloc(1, 256);
 		strncpy(keyvalue, line, 255);
