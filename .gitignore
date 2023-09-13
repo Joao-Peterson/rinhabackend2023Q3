@@ -1,3 +1,5 @@
+massif.*
+
 *.o
 webserver
 nginx.conf

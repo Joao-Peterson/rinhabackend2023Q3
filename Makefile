@@ -24,8 +24,7 @@ LD_FLAGS+=-lpq
 
 BINARY=webserver
 
-SOURCES=main.c
-SOURCES+=src/db.c
+SOURCES=src/db.c
 SOURCES+=src/utils.c
 SOURCES+=src/string+.c
 SOURCES+=facil.io/fiobj_ary.c
@@ -74,7 +73,10 @@ release : build_dir $(BINARY)
 # 	sed -r -i 's/(badge\/Version-)([0-9]\.[0-9]\.[0-9])/\1$(VERSION)/g' README.md $(DIST_DIR)/README.md
 # 	sed -r -i 's/(PROJECT_NUMBER\s+= )([0-9]\.[0-9]\.[0-9])/\1$(VERSION)/g' $(DOC_DIR)/Doxyfile
 
-$(BINARY) : $(OBJS)
+test : dbtest.o $(OBJS)
+	$(CC) $(LD_FLAGS) $^ -o $(notdir $@)
+
+$(BINARY) : main.o $(OBJS)
 	$(CC) $(LD_FLAGS) $^ -o $(notdir $@)
 
 %.o : %.c
@@ -91,9 +93,12 @@ clear :
 	@rm -vf */*.o
 	@rm -vf *.o
 
-mem : $(BINARY)
+mem : test
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
+
+profile : test
+	valgrind --tool=massif --time-unit=B ./$<
 
 image :
 	sudo docker build -t petersonsheff/rinhabackend2023q3capi .

@@ -37,7 +37,13 @@ static void loadEnvVars(char *dotEnvFile){
 
 		char *keyvalue = calloc(1, 256);
 		strncpy(keyvalue, line, 255);
-		putenv(keyvalue);
+		char *key = keyvalue;
+		char *value = strchr(key, '=');
+		*value = '\0';
+		value++;
+
+		setenv(key, value, true);
+		free(keyvalue);
 
 		line = strtok(NULL, "\n\0");
 	}

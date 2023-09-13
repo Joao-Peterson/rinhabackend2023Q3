@@ -1,29 +1,7 @@
+#ifndef _PESSOAS_HEADER_
+#define _PESSOAS_HEADER_
+
 #include "../src/db.h"
-
-// pessoas migrations
-db_error_code_t pessoa_migrate(db_t *db, bool dropTables){
-	char *query;
-	if(dropTables){
-		query = "drop table pessoas;"
-		"create table pessoas("
-			"id uuid primary key,"
-			"apelido varchar(32) unique not null,"
-			"nome varchar(100),"
-			"nascimento varchar(8) not null,"
-			"stack varchar(32)[]"
-        ");";
-	}else{
-		query = "create table pessoas("
-			"id uuid primary key,"
-			"apelido varchar(32) unique not null,"
-			"nome varchar(100),"
-			"nascimento varchar(8) not null,"
-			"stack varchar(32)[]"
-        ");";
-	}
-
-	return db_exec(db, query, 0);
-}
 
 // insert model into db
 db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascimento, size_t stack_count, char **stack){
@@ -80,3 +58,5 @@ db_error_code_t pessoas_count(db_t *db){
 
 	return db_exec(db, query, 0);
 }
+
+#endif

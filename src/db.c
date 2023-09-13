@@ -339,8 +339,10 @@ void db_results_clear(db_t *db){
 		}
 
 		free(db->results[i]);
-		free(db->result_fields[i]);
 	}
+
+	for(size_t j = 0; j < db->results_field_count; j++)
+		free(db->result_fields[j]);
 	
 	free(db->results);
 	free(db->result_fields);
@@ -371,8 +373,75 @@ void db_print_results(db_t *db){
 
 		// entry
 		for(size_t j = 0; j < db->results_field_count; j++){
-			// TODO add type switch
-			// printf("| %s ", db->results[i][j].);
+			printf("| ");
+
+			switch(db->results[i][j].type){
+				default:
+				case db_type_invalid:
+				case db_type_null:
+					printf("null");
+					break;
+
+				case db_type_integer:
+					printf("%d", *db_results_read_integer(db, i, j));
+					break;
+
+				case db_type_bool:
+					printf("%d", *db_results_read_bool(db, i, j));
+					break;
+					
+
+				case db_type_float:
+					printf("%f", *db_results_read_float(db, i, j));
+					break;
+
+				case db_type_string:
+					printf("\"%s\"", db_results_read_string(db, i, j));
+					break;
+
+				// case db_type_blob:
+
+				case db_type_integer_array:
+				{
+					uint32_t count;
+					int **array = db_results_read_integer_array(db, i, j, &count);
+
+					printf("[");
+					for(uint32_t k = 0; k < count; k++){
+						if(k != 0)
+							printf(",");
+
+						printf("%d", *(array[k]));
+					}
+
+					printf("]");
+				}
+				break;
+
+				case db_type_string_array:
+				{
+					uint32_t count;
+					char **array = db_results_read_string_array(db, i, j, &count);
+
+					printf("[");
+					for(uint32_t k = 0; k < count; k++){
+						if(k != 0)
+							printf(",");
+
+						printf("\"%s\"", array[k]);
+					}
+
+					printf("]");
+				}
+				break;
+
+				// case db_type_bool_array:
+				// case db_type_float_array:
+
+				// case db_type_blob_array:
+			}
+
+			printf(" ");
 
 			if(j == (db->results_field_count - 1)){
 				printf("|\n");
