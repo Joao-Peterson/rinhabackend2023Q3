@@ -10,26 +10,21 @@ static const char *db_vendor_name_map(db_vendor_t vendor);
 // map error codes
 db_error_code_t db_error_code_map(db_vendor_t vendor, int code);
 
-typedef db_error_code_t (*db_connect_function_t)(db_t *);
-
 // connection functions
 db_error_code_t db_connect_function_map(db_t *db);
+
 // close db map
 void db_close_function_map(db_t *db);
 
 // exec query map
-static db_error_code_t db_exec_function_map(db_t *db, char *query, size_t params_count, va_list params);
+static db_results_t *db_exec_function_map(db_t *db, size_t connection_num, char *query, size_t params_count, va_list params);
 
 // ------------------------------------------------------------ Error handlng ------------------------------------------------------
 
-void db_error_set_message(db_t *db, char *msg, char *vendor_msg);
+// create new result object
+db_results_t *db_results_new(int64_t entries, int64_t fields, db_error_code_t code, char *msg);
 
-// ------------------------------------------------------------ State handling -----------------------------------------------------
-
-#define db_state_depends_connection(db) if(db->state != db_state_connected){ \
-	db->error_code = db_error_code_connection_error; \
-	db_error_set_message(db, "This call needs an active connection to the database", (char *)__func__);} \
-	if(db->state != db_state_connected) \
-	return db->error_code
+// set result msg
+void db_results_set_message(db_results_t *results, char *msg, db_vendor_t vendor, char *vendor_msg);
 
 #endif

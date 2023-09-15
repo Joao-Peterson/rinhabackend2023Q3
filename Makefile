@@ -14,7 +14,7 @@
 CC=gcc
 C_FLAGS=-Wall -Wpedantic
 C_FLAGS_RELEASE=-O2
-C_FLAGS_DEBUG=-g
+C_FLAGS_DEBUG=-g -D DEBUG
 I_FLAGS=-Isrc
 I_FLAGS+=-Ifacil.io
 LD_FLAGS=
@@ -97,13 +97,13 @@ mem : $(BINARY)
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
 
-profile : test
+profile : $(BINARY)
 	valgrind --tool=massif --time-unit=B ./$<
 
 image :
 	sudo docker build -t petersonsheff/rinhabackend2023q3capi .
 
-compose :
+up :
 	sudo docker-compose up -d
 
 down :

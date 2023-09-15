@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-#define DB_ERROR_MSG_LEN 300
+#define DB_MSG_LEN 300
 
 // ------------------------------------------------------------ Types --------------------------------------------------------------
 
@@ -56,7 +56,6 @@ typedef struct{
 // error codes
 typedef enum{
 	db_error_code_ok = 0,
-	db_error_code_zero_results,
 	db_error_code_unique_constrain_violation,
 	db_error_code_invalid_type,
 	db_error_code_invalid_range,
@@ -69,12 +68,25 @@ typedef enum{
 	db_error_code_max
 }db_error_code_t;
 
+// returned after database execution calls
+typedef struct{
+	int64_t fields_count;
+	char **fields;
+	
+	int64_t entries_count;
+	db_entry_t **entries;
+
+	db_error_code_t code;
+	char msg[DB_MSG_LEN];
+}db_results_t;
+
 // current state of the db object
 typedef enum{
-	db_state_uninitialized,
-	db_state_not_connected,
+	db_state_invalid_db = -1,
+	db_state_not_connected = 0,
+	db_state_connecting,
 	db_state_connected,
-	db_state_invalid_db
+	db_state_failed_connection
 }db_state_t;
 
 // db struct
@@ -87,28 +99,27 @@ typedef struct{
 	char *password;
 	char *role;
 
-	int64_t results_field_count;
-	char **result_fields;
-	int64_t results_count;
-	db_entry_t **results;
-
 	db_state_t state;
-	db_error_code_t error_code;
-	char error_msg[DB_ERROR_MSG_LEN];
 
-	void *context;
+	struct{
+		size_t connections_count;
+		void *connections;
+	}context;
 }db_t;
 
 // ------------------------------------------------------------ Functions ----------------------------------------------------------
 
 // create a new db object
-db_t *db_create(db_vendor_t type, char *host, char *port, char *database, char *user, char *password, char *role);
+db_t *db_create(db_vendor_t type, size_t num_connections, char *host, char *port, char *database, char *user, char *password, char *role, db_error_code_t *code);
 
 // connect to database 
 db_error_code_t db_connect(db_t *db);
 
+// poll current db status. Use this function before accessing db->state
+db_state_t db_stat_function_map(db_t *db);
+
 // close connection
-void db_close(db_t *db);
+void db_destroy(db_t *db);
 
 // new integer param for query
 db_param_t db_param_integer(int *value);
@@ -143,55 +154,58 @@ db_param_t db_param_string_array(char **value, size_t count);
 // // new blob array param for query	
 // db_param_t db_param_blob_array(void **value, size_t count, size_t size_elem);
 
-// exec a query
-db_error_code_t db_exec(db_t *db, char *query, size_t params_count, ...);
+// exec a query. return is always NOT NULL, no need to check
+db_results_t *db_exec(db_t *db, char *query, size_t params_count, ...);
 
-// read integer value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-int *db_results_read_integer(db_t *db, uint32_t entry, uint32_t field);
+// exec a query using a specififc connection. return is always NOT NULL, no need to check
+db_results_t *db_exec_conn(db_t *db, size_t connection_num, char *query, size_t params_count, ...);
 
-// read bool value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-bool *db_results_read_bool(db_t *db, uint32_t entry, uint32_t field);
+// read integer value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+int *db_results_read_integer(db_results_t *results, uint32_t entry, uint32_t field);
 
-// read float value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-float *db_results_read_float(db_t *db, uint32_t entry, uint32_t field);
+// read bool value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+bool *db_results_read_bool(db_results_t *results, uint32_t entry, uint32_t field);
 
-// read string value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-char *db_results_read_string(db_t *db, uint32_t entry, uint32_t field);
+// read float value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+float *db_results_read_float(db_results_t *results, uint32_t entry, uint32_t field);
 
-// read blob value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-void *db_results_read_blob(db_t *db, uint32_t entry, uint32_t field);
+// read string value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+char *db_results_read_string(db_results_t *results, uint32_t entry, uint32_t field);
 
-// read integer_array value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-int **db_results_read_integer_array(db_t *db, uint32_t entry, uint32_t field, uint32_t *length);
+// read blob value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+void *db_results_read_blob(db_results_t *results, uint32_t entry, uint32_t field);
 
-// read string_array value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-char **db_results_read_string_array(db_t *db, uint32_t entry, uint32_t field, uint32_t *length);
+// read integer_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+int **db_results_read_integer_array(db_results_t *results, uint32_t entry, uint32_t field, uint32_t *length);
 
-// // read bool_array value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-// db_results_read_bool_array(db_t *db, uint32_t entry, uint32_t field);
+// read string_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+char **db_results_read_string_array(db_results_t *results, uint32_t entry, uint32_t field, uint32_t *length);
 
-// // read float_array value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-// db_results_read_float_array(db_t *db, uint32_t entry, uint32_t field);
+// // read bool_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+// db_results_read_bool_array(db_results_t *results, uint32_t entry, uint32_t field);
 
-// // read blob_array value from last query results. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
-// db_results_read_blob_array(db_t *db, uint32_t entry, uint32_t field);
+// // read float_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+// db_results_read_float_array(db_results_t *results, uint32_t entry, uint32_t field);
 
-// check if value from last query is valid. Values can be invalid the type on the database is unknown, like when user defined, after database version changes or even if corruption occurs
-bool db_results_isvalid(db_t *db, uint32_t entry, uint32_t field);
+// // read blob_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+// db_results_read_blob_array(db_results_t *results, uint32_t entry, uint32_t field);
 
-// check if value from last query is null. Invalid values are not null, only a valid value can be null. Valid values can be null or the value itself 
-bool db_results_isnull(db_t *db, uint32_t entry, uint32_t field);
+// check if a value from the results of a query is valid. Values can be invalid the type on the database is unknown, like when user defined, after database version changes or even if corruption occurs
+bool db_results_isvalid(db_results_t *results, uint32_t entry, uint32_t field);
 
-// check if value from last query is valid and not null, thus it can be read and used normally without fear of segfaults by NULL ptr access 
-bool db_results_isvalid_and_notnull(db_t *db, uint32_t entry, uint32_t field);
+// check if a value from the results of a query is null. Invalid values are not null, only a valid value can be null. Valid values can be null or the value itself 
+bool db_results_isnull(db_results_t *results, uint32_t entry, uint32_t field);
 
-// clean results from last query 
-void db_results_clear(db_t *db);
+// check if a value from the results of a query is valid and not null, thus it can be read and used normally without fear of segfaults by NULL ptr access 
+bool db_results_isvalid_and_notnull(db_results_t *results, uint32_t entry, uint32_t field);
 
-// print results from last query
-void db_print_results(db_t *db);
+// free results returned from a query
+void db_results_destroy(db_results_t *results);
 
-// return last results as json string
-char *db_json_entries(db_t *db, bool squash_if_single);
+// print results from a query
+void db_print_results(db_results_t *results);
+
+// json stringify results from a query
+char *db_json_entries(db_results_t *results, bool squash_if_single);
 
 #endif

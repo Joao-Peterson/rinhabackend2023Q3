@@ -52,13 +52,15 @@ int main(int argq, char **argv, char **envp){
 	}
 
 	char *port = getenv("SERVER_PORT");
-	char *threads = getenv("SERVER_THREADS");
-	int threads_num = atoi(threads);
+	char *workers_env = getenv("SERVER_WORKERS");
+	char *threads_env = getenv("SERVER_THREADS");
+	int threads = atoi(threads_env);
+	int workers = atoi(workers_env);
 
 	http_listen(port, NULL, .on_request = on_request, .log = 1);
 
 	printf("Starting server on port: [%s]\n", port);
-	fio_start(.threads = threads_num);
+	fio_start(.threads = threads, .workers = workers);
 
 	printf("Stopping server...\n");
 
@@ -69,6 +71,7 @@ int main(int argq, char **argv, char **envp){
 
 // main callback
 void on_request(http_s *h){
+	// TODO url parsing: https://facil.io/0.7.x/fio#url-parsing
 	if(fiobj_str_cmp(h->method, "GET")){
 		on_get(h);
 	}
@@ -156,7 +159,7 @@ void on_get_search(http_s *h){
 // get uuid
 void on_get_uuid(http_s *h){
 	if(!fiobj_str_substr(h->path, "/pessoas")){										// not /pessoas/* path
-		h->status = http_status_code_NotFound;
+		h->status = http_status_code_BadRequest;
 		http_send_body(h, "Not found", 9);
 		return;
 	}
@@ -171,7 +174,7 @@ void on_get_uuid(http_s *h){
 	}
 
 	if(cursor == pathstr){															// no uuid
-		h->status = http_status_code_NotFound;
+		h->status = http_status_code_BadRequest;
 		http_send_body(h, "Not found", 9);
 		return;
 	}
@@ -181,7 +184,7 @@ void on_get_uuid(http_s *h){
 	// db call
 	switch(pessoas_select_uuid(db, uuid)){
 		case db_error_code_zero_results:
-			http_send_error(h, http_status_code_NotFound);
+			http_send_error(h, http_status_code_BadRequest);
 			break;
 
 		case db_error_code_invalid_type:

@@ -10,10 +10,33 @@
 
 // default connection function
 static db_error_code_t db_default_function_invalid(db_t *db){
-	db_error_set_message(db, "Invalid database vendor", "invalid");
-	db->error_code = db_error_code_invalid_db;
 	db->state = db_state_invalid_db;
-	return db->error_code;
+	return db_error_code_invalid_db;
+}
+
+// ------------------------------------------------------------- Private calls  ----------------------------------------------------
+
+// create new result object
+db_results_t *db_results_new(int64_t entries, int64_t fields, db_error_code_t code, char *msg){
+	db_results_t *result = calloc(1, sizeof(db_results_t));
+
+	result->entries_count = entries;
+	result->fields_count = fields;
+	result->code = code;
+
+	if(msg != NULL) memcpy(result->msg, msg, strlen(msg) + 1);
+
+	return result;
+}
+
+// create new result object for null db
+db_results_t *db_result_new_nulldb(){
+	return db_results_new(0, 0, db_error_code_invalid_db, "Database passed was null");
+}
+
+// set reasult error
+void db_results_set_message(db_results_t *results, char *msg, db_vendor_t vendor, char *vendor_msg){
+	snprintf(results->msg, DB_MSG_LEN, "%s. (%s): %s\n", msg, db_vendor_name_map(vendor), vendor_msg);
 }
 
 // ------------------------------------------------------------ Database maps ------------------------------------------------------
@@ -31,17 +54,36 @@ static const char *db_vendor_name_map(db_vendor_t vendor){
 // map error codes
 db_error_code_t db_error_code_map(db_vendor_t vendor, int code){
 	switch(vendor){
-		default: 						return db_error_code_invalid_db;
+		default: 						
+			return db_error_code_invalid_db;
+
 		case db_vendor_postgres: 		
 		case db_vendor_postgres15: 		
 			return db_error_code_map_postgres(code);
 	}
 }
 
-typedef db_error_code_t (*db_connect_function_t)(db_t *);
-
 // connection functions
 db_error_code_t db_connect_function_map(db_t *db){
+	if(db == NULL) return db_error_code_invalid_db;
+	
+	switch(db->state){
+		// only try connecting/reconnecting
+		case db_state_not_connected:
+		case db_state_failed_connection:
+			break;
+
+		case db_state_connected:
+			return db_error_code_ok;
+
+		case db_state_connecting:
+			return db_error_code_processing;
+		
+		default:
+		case db_state_invalid_db:
+			return db_error_code_invalid_db;
+	}
+
 	switch(db->vendor){
 		default: 
 			return db_default_function_invalid(db);
@@ -54,9 +96,24 @@ db_error_code_t db_connect_function_map(db_t *db){
 	return db_error_code_unknown;
 }
 
+// poll current db status. map
+db_state_t db_stat_function_map(db_t *db){
+	if(db == NULL) return db_state_invalid_db;
+	
+	switch(db->vendor){
+		default: 
+			return db_state_invalid_db;
+			
+		case db_vendor_postgres:
+		case db_vendor_postgres15:
+			return db_stat_function_postgres(db);
+	}
+}
+
 // close db map
 void db_close_function_map(db_t *db){
-	db_results_clear(db);
+	if(db == NULL) return;
+	
 	free(db->host);
 	free(db->port);
 	free(db->database);
@@ -77,16 +134,18 @@ void db_close_function_map(db_t *db){
 }
 
 // exec query map
-static db_error_code_t db_exec_function_map(db_t *db, char *query, size_t params_count, va_list params){
-	db_results_clear(db);
+static db_results_t *db_exec_function_map(db_t *db, size_t connection_num, char *query, size_t params_count, va_list params){
+	if(db == NULL) return db_result_new_nulldb();
+
+	if(connection_num >= db->context.connections_count) return db_results_new(0, 0, db_error_code_invalid_range, "Desired connection exceeds the number of connections available");
 
 	switch(db->vendor){
 		default: 
-			return db_default_function_invalid(db);
+			return db_results_new(0, 0, db_error_code_invalid_db, "Vendor not yet implemented");
 			
 		case db_vendor_postgres:
 		case db_vendor_postgres15:
-			return db_exec_function_postgres(db, query, params_count, params);
+			return db_exec_function_postgres(db, connection_num, query, params_count, params);
 	}
 }
 
@@ -102,25 +161,22 @@ static char *db_default_port_map(db_vendor_t vendor){
 	}
 }
 
-// ------------------------------------------------------------ Error handlng ------------------------------------------------------
-
-void db_error_set_message(db_t *db, char *msg, char *vendor_msg){
-	snprintf(db->error_msg, DB_ERROR_MSG_LEN, "%s. (%s): %s\n", msg, db_vendor_name_map(db->vendor), vendor_msg);
-}
-
 // ------------------------------------------------------------- Public calls ------------------------------------------------------
 
 // create db object
-db_t *db_create(db_vendor_t type, char *host, char *port, char *database, char *user, char *password, char *role){
+db_t *db_create(db_vendor_t type, size_t num_connections, char *host, char *port, char *database, char *user, char *password, char *role, db_error_code_t *code){
 	if(
 		(host == NULL) ||
 		(database == NULL) ||
-		(user == NULL)
+		(user == NULL) ||
+		(num_connections < 1)
 	){
+		if(code != NULL) *code = db_error_code_invalid_db;
 		return NULL;
 	}
 
 	db_t *db = (db_t*)calloc(1, sizeof(db_t));
+
 	db->host     	= strdup(host);
 	db->port     	= port != NULL ? strdup(port) : strdup(db_default_port_map(type));
 	db->database 	= strdup(database);
@@ -128,16 +184,21 @@ db_t *db_create(db_vendor_t type, char *host, char *port, char *database, char *
 	db->password 	= password != NULL ? strdup(password) : strdup("");
 	db->role     	= role != NULL ? strdup(role) : strdup("");
 	db->state 		= db_state_not_connected;
-
-	db->results_count = -1;
-	db->results_field_count = -1;
 	
+	db->context.connections_count = num_connections;
+
+	if(code != NULL) *code = db_error_code_ok;
 	return db;
 }
 
 // connect to database
 db_error_code_t db_connect(db_t *db){
 	return db_connect_function_map(db);
+}
+
+// poll current db status. Use this function before accessing db->state
+db_state_t db_stat_function_map(db_t *db){
+	return db_stat_function_map(db);
 }
 
 // new param for query
@@ -289,64 +350,70 @@ db_param_t db_param_string_array(char **value, size_t count){
 // 	return db_param_new(db_type_blob, true, count, (void*)value, size_elem); 
 // }
 
-
 // exec query
-db_error_code_t db_exec(db_t *db, char *query, size_t params_count, ...){
-	db_state_depends_connection(db);
-	
+db_results_t *db_exec(db_t *db, char *query, size_t params_count, ...){
 	va_list params;
 	va_start(params, params_count);
-	db_error_code_t code = db_exec_function_map(db, query, params_count, params);
+	db_results_t *res = db_exec_function_map(db, 0, query, params_count, params);
 	va_end(params);
-	return code;
+	return res;
 }
 
-// clean
-void db_results_clear(db_t *db){
-	if(db->results_count == -1) return;
+// exec a query using a specififc connection. return is always NOT NULL, no need to check
+db_results_t *db_exec_conn(db_t *db, size_t connection_num, char *query, size_t params_count, ...){
+	va_list params;
+	va_start(params, params_count);
+	db_results_t *res = db_exec_function_map(db, connection_num, query, params_count, params);
+	va_end(params);
+	return res;
+}
 
-	for(size_t i = 0; i < db->results_count; i++){
-		for(size_t j = 0; j < db->results_field_count; j++){
-			switch(db->results[i][j].type){
-				default:
-					break;
+// destroy results
+void db_results_destroy(db_results_t *results){
+	if(results == NULL) return;
 
-				case db_type_integer_array:
-					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
-						free( ( (int**)(db->results[i][j].value) ) [elem]);
-					break;
-					
-				case db_type_bool_array:
-					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
-						free( ( (bool**)(db->results[i][j].value) ) [elem]);
-					break;
+	if(results->fields != NULL){
+		for(size_t i = 0; i < results->entries_count; i++){							// for each entry
+			for(size_t j = 0; j < results->fields_count; j++){						// on each columns/field
+				for(size_t elem = 0; elem < results->entries[i][j].count; elem++){	// on each element if values is array  
+					switch(results->entries[i][j].type){
+						default:
+							break;
 
-				case db_type_float_array:
-					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
-						free( ( (float**)(db->results[i][j].value) ) [elem]);
-					break;
+						case db_type_integer_array:
+								free( ( (int**)(results->entries[i][j].value) ) [elem]);
+							break;
+							
+						case db_type_bool_array:
+							for(size_t elem = 0; elem < results->entries[i][j].count; elem++)
+								free( ( (bool**)(results->entries[i][j].value) ) [elem]);
+							break;
 
-				case db_type_string_array:
-					for(size_t elem = 0; elem < db->results[i][j].count; elem++)
-						free( ( (char**)(db->results[i][j].value) ) [elem]);
-					break;
+						case db_type_float_array:
+							for(size_t elem = 0; elem < results->entries[i][j].count; elem++)
+								free( ( (float**)(results->entries[i][j].value) ) [elem]);
+							break;
 
-				// case db_type_blob_array:
+						case db_type_string_array:
+							for(size_t elem = 0; elem < results->entries[i][j].count; elem++)
+								free( ( (char**)(results->entries[i][j].value) ) [elem]);
+							break;
+
+						// case db_type_blob_array:
+					}
+				}
+
+				free(results->entries[i][j].value);									// free value
 			}
 
-			free(db->results[i][j].value);
+			free(results->entries[i]);												// free whole entry
 		}
 
-		free(db->results[i]);
+		for(size_t j = 0; j < results->fields_count; j++)
+			free(results->fields[j]);												// free fields names
 	}
 
-	for(size_t j = 0; j < db->results_field_count; j++)
-		free(db->result_fields[j]);
-	
-	free(db->results);
-	free(db->result_fields);
-	db->results_count = -1;
-	db->results_field_count = -1;
+	free(results);																	// free results object
 }
 
 // close db connection
@@ -355,26 +422,26 @@ void db_close(db_t *db){
 }
 
 // print
-void db_print_results(db_t *db){
-	if(db->results_count < 1) return;
+void db_print_results(db_results_t *results){
+	if(results->entries == NULL) return;
 
-	for(size_t i = 0; i < db->results_count; i++){
+	for(size_t i = 0; i < results->entries_count; i++){
 		// columns names
 		if(i == 0){
-			for(size_t j = 0; j < db->results_field_count; j++){
-				printf("| %s ", db->result_fields[j]);
+			for(size_t j = 0; j < results->fields_count; j++){
+				printf("| %s ", results->fields[j]);
 
-				if(j == (db->results_count - 1)){
+				if(j == (results->entries_count - 1)){
 					printf("|\n");
 				}
 			}	
 		}
 
 		// entry
-		for(size_t j = 0; j < db->results_field_count; j++){
+		for(size_t j = 0; j < results->fields_count; j++){
 			printf("| ");
 
-			switch(db->results[i][j].type){
+			switch(results->entries[i][j].type){
 				default:
 				case db_type_invalid:
 				case db_type_null:
@@ -382,20 +449,20 @@ void db_print_results(db_t *db){
 					break;
 
 				case db_type_integer:
-					printf("%d", *db_results_read_integer(db, i, j));
+					printf("%d", *db_results_read_integer(results, i, j));
 					break;
 
 				case db_type_bool:
-					printf("%d", *db_results_read_bool(db, i, j));
+					printf("%d", *db_results_read_bool(results, i, j));
 					break;
 					
 
 				case db_type_float:
-					printf("%f", *db_results_read_float(db, i, j));
+					printf("%f", *db_results_read_float(results, i, j));
 					break;
 
 				case db_type_string:
-					printf("\"%s\"", db_results_read_string(db, i, j));
+					printf("\"%s\"", db_results_read_string(results, i, j));
 					break;
 
 				// case db_type_blob:
@@ -403,7 +470,7 @@ void db_print_results(db_t *db){
 				case db_type_integer_array:
 				{
 					uint32_t count;
-					int **array = db_results_read_integer_array(db, i, j, &count);
+					int **array = db_results_read_integer_array(results, i, j, &count);
 
 					printf("[");
 					for(uint32_t k = 0; k < count; k++){
@@ -420,7 +487,7 @@ void db_print_results(db_t *db){
 				case db_type_string_array:
 				{
 					uint32_t count;
-					char **array = db_results_read_string_array(db, i, j, &count);
+					char **array = db_results_read_string_array(results, i, j, &count);
 
 					printf("[");
 					for(uint32_t k = 0; k < count; k++){
@@ -442,18 +509,18 @@ void db_print_results(db_t *db){
 
 			printf(" ");
 
-			if(j == (db->results_field_count - 1)){
+			if(j == (results->fields_count - 1)){
 				printf("|\n");
 			}
 		}	
 	}
 }
 
-// print josn
-char *db_json_entries(db_t *db, bool squash_if_single){
-	if(db->results_count < 0) return NULL;
+// print json
+char *db_json_entries(db_results_t *results, bool squash_if_single){
+	if(results->entries == NULL) return NULL;
 
-	bool trail = !(squash_if_single && db->results_count == 1);
+	bool trail = !(squash_if_single && results->entries_count == 1);
 
 	string *json = string_new();
 
@@ -462,20 +529,20 @@ char *db_json_entries(db_t *db, bool squash_if_single){
 	else
 		string_cat_raw(json, "{");
 
-	for(size_t i = 0; i < db->results_count; i++){
+	for(size_t i = 0; i < results->entries_count; i++){
 		if(trail)
 			string_cat_raw(json, "{");
 	
-		for(size_t j = 0; j < db->results_field_count; j++){
+		for(size_t j = 0; j < results->fields_count; j++){
 
 			if(j != 0)
 				string_cat_raw(json, ",");
 
 			// name
-			string_cat_fmt(json, "\"%s\":", 50, db->result_fields[j]);
+			string_cat_fmt(json, "\"%s\":", 50, results->fields[j]);
 			
 			// value
-			switch(db->results[i][j].type){
+			switch(results->entries[i][j].type){
 				default:
 				case db_type_invalid:
 				case db_type_null:
@@ -483,20 +550,20 @@ char *db_json_entries(db_t *db, bool squash_if_single){
 					break;
 
 				case db_type_integer:
-					string_cat_fmt(json, "%d", 15, *db_results_read_integer(db, i, j));
+					string_cat_fmt(json, "%d", 15, *db_results_read_integer(results, i, j));
 					break;
 
 				case db_type_bool:
-					string_cat_fmt(json, "%d", 15, *db_results_read_bool(db, i, j));
+					string_cat_fmt(json, "%d", 15, *db_results_read_bool(results, i, j));
 					break;
 					
 
 				case db_type_float:
-					string_cat_fmt(json, "%f", 20, *db_results_read_float(db, i, j));
+					string_cat_fmt(json, "%f", 20, *db_results_read_float(results, i, j));
 					break;
 
 				case db_type_string:
-					string_cat_fmt(json, "\"%s\"", 255, db_results_read_string(db, i, j));
+					string_cat_fmt(json, "\"%s\"", 255, db_results_read_string(results, i, j));
 					break;
 
 				// case db_type_blob:
@@ -504,7 +571,7 @@ char *db_json_entries(db_t *db, bool squash_if_single){
 				case db_type_integer_array:
 				{
 					uint32_t count;
-					int **array = db_results_read_integer_array(db, i, j, &count);
+					int **array = db_results_read_integer_array(results, i, j, &count);
 
 					string_cat_raw(json, "[");
 					for(uint32_t k = 0; k < count; k++){
@@ -521,7 +588,7 @@ char *db_json_entries(db_t *db, bool squash_if_single){
 				case db_type_string_array:
 				{
 					uint32_t count;
-					char **array = db_results_read_string_array(db, i, j, &count);
+					char **array = db_results_read_string_array(results, i, j, &count);
 
 					string_cat_raw(json, "[");
 					for(uint32_t k = 0; k < count; k++){
@@ -545,7 +612,7 @@ char *db_json_entries(db_t *db, bool squash_if_single){
 		if(trail)
 			string_cat_raw(json, "}");
 
-		if(i != (db->results_count - 1))
+		if(i != (results->entries_count - 1))
 			string_cat_raw(json, ",");
 	}
 
@@ -560,29 +627,33 @@ char *db_json_entries(db_t *db, bool squash_if_single){
 	return ret;
 }
 
-db_entry_t *db_results_get_entry(db_t *db, uint32_t entry, uint32_t field){
-	if(db->results_count == -1) return NULL;
-	if(entry >= db->results_count) return NULL;
-	if(field >= db->results_field_count) return NULL;
-	if(db->results[entry][field].type == db_type_invalid) return NULL;
+// get single entry
+db_entry_t *db_results_get_entry(db_results_t *results, uint32_t entry, uint32_t field){
+	if(results->entries == NULL) return NULL;
+	if(entry >= results->entries_count) return NULL;
+	if(field >= results->fields_count) return NULL;
+	if(results->entries[entry][field].type == db_type_invalid) return NULL;
 
-	return &(db->results[entry][field]);
+	return &(results->entries[entry][field]);
 }
 
-db_entry_t *db_results_get_entry_tc(db_t *db, uint32_t entry, uint32_t field, db_type_t type_check){
-	db_entry_t *value = db_results_get_entry(db, entry, field);
+// get single entry ith type checking
+db_entry_t *db_results_get_entry_tc(db_results_t *results, uint32_t entry, uint32_t field, db_type_t type_check){
+	db_entry_t *value = db_results_get_entry(results, entry, field);
 	if(value->type != type_check) return NULL;
 	return value;
 }
 
-void *db_results_get_value(db_t *db, uint32_t entry, uint32_t field, db_type_t type_check){
-	db_entry_t *value = db_results_get_entry_tc(db, entry, field, type_check);
+// get value from entry with type check
+void *db_results_get_value(db_results_t *results, uint32_t entry, uint32_t field, db_type_t type_check){
+	db_entry_t *value = db_results_get_entry_tc(results, entry, field, type_check);
 	if(value == NULL) return NULL;
 	return value->value;
 }
 
-void *db_results_get_array_value(db_t *db, uint32_t entry, uint32_t field, db_type_t type_check, uint32_t *length){
-	db_entry_t *value = db_results_get_entry_tc(db, entry, field, type_check);
+// get value from entry for array type with type check
+void *db_results_get_array_value(db_results_t *results, uint32_t entry, uint32_t field, db_type_t type_check, uint32_t *length){
+	db_entry_t *value = db_results_get_entry_tc(results, entry, field, type_check);
 	if(value == NULL){
 		if(length != NULL) *length = 0;
 		return NULL;
@@ -592,60 +663,70 @@ void *db_results_get_array_value(db_t *db, uint32_t entry, uint32_t field, db_ty
 	return value->value;
 }
 
-int *db_results_read_integer(db_t *db, uint32_t entry, uint32_t field){
-	return (int*)db_results_get_value(db, entry, field, db_type_integer);
+// read integer value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+int *db_results_read_integer(db_results_t *results, uint32_t entry, uint32_t field){
+	return (int*)db_results_get_value(results, entry, field, db_type_integer);
 }
 
-bool *db_results_read_bool(db_t *db, uint32_t entry, uint32_t field){
-	return (bool*)db_results_get_value(db, entry, field, db_type_bool);
+// read bool value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+bool *db_results_read_bool(db_results_t *results, uint32_t entry, uint32_t field){
+	return (bool*)db_results_get_value(results, entry, field, db_type_bool);
 }
 
-float *db_results_read_float(db_t *db, uint32_t entry, uint32_t field){
-	return (float*)db_results_get_value(db, entry, field, db_type_float);
+// read float value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+float *db_results_read_float(db_results_t *results, uint32_t entry, uint32_t field){
+	return (float*)db_results_get_value(results, entry, field, db_type_float);
 }
 
-char *db_results_read_string(db_t *db, uint32_t entry, uint32_t field){
-	return (char*)db_results_get_value(db, entry, field, db_type_string);
+// read string value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+char *db_results_read_string(db_results_t *results, uint32_t entry, uint32_t field){
+	return (char*)db_results_get_value(results, entry, field, db_type_string);
 }
 
-void *db_results_read_blob(db_t *db, uint32_t entry, uint32_t field){
-	return (void*)db_results_get_value(db, entry, field, db_type_blob);
+// read blob value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+void *db_results_read_blob(db_results_t *results, uint32_t entry, uint32_t field){
+	return (void*)db_results_get_value(results, entry, field, db_type_blob);
 }
 
-int **db_results_read_integer_array(db_t *db, uint32_t entry, uint32_t field, uint32_t *length){
-	return (int**)db_results_get_array_value(db, entry, field, db_type_integer_array, length);
+// read integer_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+int **db_results_read_integer_array(db_results_t *results, uint32_t entry, uint32_t field, uint32_t *length){
+	return (int**)db_results_get_array_value(results, entry, field, db_type_integer_array, length);
 }
 
-char **db_results_read_string_array(db_t *db, uint32_t entry, uint32_t field, uint32_t *length){
-	return (char**)db_results_get_array_value(db, entry, field, db_type_string_array, length);
+// read string_array value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
+char **db_results_read_string_array(db_results_t *results, uint32_t entry, uint32_t field, uint32_t *length){
+	return (char**)db_results_get_array_value(results, entry, field, db_type_string_array, length);
 }
 
-// db_results_read_bool_array(db_t *db, uint32_t entry, uint32_t field){
+// db_results_read_bool_array(db_results_t *results, uint32_t entry, uint32_t field){
 
 // }
 
-// db_results_read_float_array(db_t *db, uint32_t entry, uint32_t field){
+// db_results_read_float_array(db_results_t *results, uint32_t entry, uint32_t field){
 
 // }
 
-// db_results_read_blob_array(db_t *db, uint32_t entry, uint32_t field){
+// db_results_read_blob_array(db_results_t *results, uint32_t entry, uint32_t field){
 
 // }
 
-bool db_results_isvalid(db_t *db, uint32_t entry, uint32_t field){
-	db_entry_t *value = db_results_get_entry(db, entry, field);
+// check if a value from the results of a query is valid. Values can be invalid the type on the database is unknown, like when user defined, after database version changes or even if corruption occurs
+bool db_results_isvalid(db_results_t *results, uint32_t entry, uint32_t field){
+	db_entry_t *value = db_results_get_entry(results, entry, field);
 	if(value == NULL) return false;
 	return true;
 }
 
-bool db_results_isnull(db_t *db, uint32_t entry, uint32_t field){
-	db_entry_t *value = db_results_get_entry(db, entry, field);
+// check if a value from the results of a query is null. Invalid values are not null, only a valid value can be null. Valid values can be null or the value itself 
+bool db_results_isnull(db_results_t *results, uint32_t entry, uint32_t field){
+	db_entry_t *value = db_results_get_entry(results, entry, field);
 	if(value == NULL) return false;
-	return db->results[entry][field].type == db_type_null;
+	return results->entries[entry][field].type == db_type_null;
 }
 
-bool db_results_isvalid_and_notnull(db_t *db, uint32_t entry, uint32_t field){
-	db_entry_t *value = db_results_get_entry(db, entry, field);
+// check if a value from the results of a query is valid and not null, thus it can be read and used normally without fear of segfaults by NULL ptr access 
+bool db_results_isvalid_and_notnull(db_results_t *results, uint32_t entry, uint32_t field){
+	db_entry_t *value = db_results_get_entry(results, entry, field);
 	if(value == NULL) return false;
-	return (db->results[entry][field].type != db_type_null);
+	return (results->entries[entry][field].type != db_type_null);
 }

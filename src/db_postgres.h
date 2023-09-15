@@ -28,39 +28,111 @@ static db_error_code_t db_error_code_map_postgres(int code){
 	}
 }
 
-static const char *db_connection_string_postgres = "host=%s port=%s user=%s password=%s dbname=%s";
-
 // connection function
 static db_error_code_t db_connect_function_postgres(db_t *db){
-	char constring[200] = {0};
-	snprintf(constring, 199, db_connection_string_postgres, 
+
+	db->state = db_state_not_connected;
+
+	const char *keys[5] = {
+		"host",
+		"port",
+		"dbname",
+		"user",
+		"password"
+	};
+
+	char *values[5] = {
 		db->host,
 		db->port,
+		db->database,
 		db->user,
-		db->password,
-		db->database
-	);
+		db->password
+	};
 
-	PGconn *conn = PQconnectdb(constring);
-	db->context = (void*)conn;
-
+	// check first as sync
+	PGconn *conn = PQconnectdbParams(keys, values, 0);
+	
     if (PQstatus(conn) == CONNECTION_BAD) {
-		db_error_set_message(db, "Connection to database failed", PQerrorMessage(conn));
-		db->error_code = db_error_code_connection_error;
-		db->state = db_state_not_connected;
+		// db_error_set_message(db, "Connection to database failed", PQerrorMessage(conn));
+		db->state = db_state_failed_connection;
 		PQfinish(conn);
-		return db->error_code;
+		return db_error_code_connection_error;
     }
 
-	db_error_set_message(db, "Connection to dabatase suceeded!", PQerrorMessage(conn));
-	db->error_code = db_error_code_ok;
-	db->state = db_state_connected;
-	return db->error_code;
+	// create other connections
+	PGconn **connections = calloc(db->context.connections_count, sizeof(PGconn*));
+	db->context.connections = connections;
+	connections[0] = conn;
+
+	for(size_t i = 1; i < db->context.connections_count; i++){
+		connections[i] = PQconnectStartParams(keys, values, 0);
+
+		if(connections[i] == NULL){													// on mass creating of connection, if error, free all created ones
+			for(size_t j = i - 1; j >= 0; j--){
+				PQfinish(connections[i]);
+			}
+
+			db->state = db_state_failed_connection;
+			return db_state_failed_connection;
+		}
+	}
+
+	db->state = db_state_connecting;
+	return db_error_code_ok;
+}
+
+// stat connection
+static db_state_t db_stat_function_postgres(db_t *db){
+	PGconn **connections = db->context.connections;
+
+	if(connections != NULL){
+
+		bool all_ok = true;
+		
+		for(size_t i = 0; i < db->context.connections_count; i++){
+			if(connections[i] == NULL)												// any null cionnection is game over
+				return db_state_invalid_db;
+
+			switch(PQconnectPoll(connections[i])){
+				case CONNECTION_BAD:												// if bad return failed
+					db->state = db_state_failed_connection;
+					return db_state_failed_connection;
+					break;
+
+				case CONNECTION_OK:													// when ok just continue to verify others
+					break;
+
+				default:															// if any state other than ok or bad, then current status remain
+					all_ok = false;
+					break;
+			}
+		}
+
+		if(all_ok){
+			db->state = db_state_connected;											// every connection was ok, then connected
+			return db_state_connected;
+		}
+		else{
+			return db->state;														// if any other postgres state then return current db state
+		}
+	}
+	else{
+		return db_state_invalid_db;													// no connections = game over
+	}
 }
 
 // close db connection
 static void db_close_function_postgres(db_t *db){
-	PQfinish(db->context);
+	PGconn **connections = db->context.connections;
+
+	if(connections != NULL){
+		for(size_t i = 0; i < db->context.connections_count; i++){
+			if(connections[i] != NULL)
+				PQfinish(connections[i]);
+		}
+	}
+
+	free(db->context.connections);
 }
 
 // postgres oid from pg_types table
@@ -519,26 +591,26 @@ static db_type_t db_type_map_postgres(Oid oid){
 }
 
 // process entries
-static void db_process_entries_postgres(db_t *db, PGresult *res){
-	db->results_count = PQntuples(res);
-	db->results_field_count = PQnfields(res);
-	db_type_t types[db->results_field_count];
+static void db_process_entries_postgres(db_results_t *results, PGresult *res){
+	results->entries_count = PQntuples(res);
+	results->fields_count = PQnfields(res);
+	db_type_t types[results->fields_count];
 
-	db->results = malloc(sizeof(db_entry_t) * db->results_count);
-	db->result_fields = malloc(sizeof(db_entry_t) * db->results_field_count);
+	results->entries = malloc(sizeof(db_entry_t) * results->entries_count);
+	results->fields = malloc(sizeof(db_entry_t) * results->fields_count);
 
 	// fields names and types
-	for(size_t j = 0; j < db->results_field_count; j++){
-		db->result_fields[j] = strdup(PQfname(res, j));
+	for(size_t j = 0; j < results->fields_count; j++){
+		results->fields[j] = strdup(PQfname(res, j));
 		types[j] = db_type_map_postgres(PQftype(res, j));
 	}
 
 	// result values
-	for(size_t i = 0; i < db->results_count; i++){
-		db->results[i] = malloc(sizeof(db_entry_t) * db->results_field_count);
+	for(size_t i = 0; i < results->entries_count; i++){
+		results->entries[i] = malloc(sizeof(db_entry_t) * results->fields_count);
 
 		// for every columns/field
-		for(size_t j = 0; j < db->results_field_count; j++){
+		for(size_t j = 0; j < results->fields_count; j++){
 			db_entry_t entry = {
 				.value = NULL,
 				.count = 0,
@@ -548,7 +620,7 @@ static void db_process_entries_postgres(db_t *db, PGresult *res){
 
 			if(PQgetisnull(res, i, j)){												// if null value
 				entry.type = db_type_null;
-				db->results[i][j] = entry;
+				results->entries[i][j] = entry;
 				continue;
 			}
 
@@ -683,16 +755,17 @@ static void db_process_entries_postgres(db_t *db, PGresult *res){
 					break;
 			}
 
-			db->results[i][j] = entry;
+			results->entries[i][j] = entry;
 		}
 	}
 }
 
-static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t params_count, va_list params){
+static db_results_t *db_exec_function_postgres(db_t *db, size_t connection_num, char *query, size_t params_count, va_list params){
 	PGresult *res;
+	PGconn *conn = ((PGconn**)(db->context.connections))[connection_num];
 
 	if(params_count == 0){															// no params
-		res = PQexec(db->context, query);
+		res = PQexec(conn, query);
 	}
 	else{																			// with params
 		char *query_params[params_count];
@@ -704,9 +777,7 @@ static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t p
 			values[i] = string_new();
 
 			if(param.type == db_type_invalid){										// invalid type
-				db->error_code = db_error_code_invalid_type;
-				db_error_set_message(db, "An input param for the query was invalid", "");
-				return db_error_code_invalid_type;
+				return db_results_new(0, 0, db_error_code_invalid_type, "An input param for the query was invalid");
 			}
 
 			if(param.is_array){														// for array type
@@ -718,25 +789,25 @@ static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t p
 						string_cat_raw(values[i], ",");
 
 					switch(param.type){
-						case db_type_integer_array:										// integer array
+						case db_type_integer_array:									// integer array
 							string_cat_fmt(values[i], "%d", 25, ((int**)param.value)[j]);
 						break;
 
-						case db_type_bool_array:   										// bool array
+						case db_type_bool_array:   									// bool array
 							string_cat_fmt(values[i], "%s", 6, ((bool**)param.value)[j] ? "true" : "false");
 						break;
 
-						case db_type_float_array:  										// float array
+						case db_type_float_array:  									// float array
 							string_cat_fmt(values[i], "%f", 50, ((float**)param.value)[j]);
 						break;
 
-						case db_type_string_array: 										// string array
+						case db_type_string_array: 									// string array
 							string_cat_fmt(values[i], "%s", strlen(((char**)param.value)[j]) + 1, ((char**)param.value)[j]);
 						break;
 
 						// TODO add blob array type param
-						case db_type_blob_array:   										// blob array
-						break;
+						// case db_type_blob_array:   									// blob array
+						// break;
 
 						default:
 							break;
@@ -778,56 +849,53 @@ static db_error_code_t db_exec_function_postgres(db_t *db, char *query, size_t p
 		}
 
 		res =																		// exec query 
-			PQexecParams(db->context, query, params_count, NULL, (const char *const *)query_params, NULL, NULL, 0);
+			PQexecParams(conn, query, params_count, NULL, (const char *const *)query_params, NULL, NULL, 0);
 
 		for(size_t i = 0; i < params_count; i++){									// free values
 			string_destroy(values[i]);
 		}
 	}
 	
+	db_results_t *results = db_results_new(0, 0, db_error_code_ok, NULL);
+
 	// handle special error cases that the error map cant handle
 	if(res == NULL){
-		db->error_code = db_error_code_unknown;
-		db_error_set_message(db, "Query response was null", PQresultErrorMessage(res));
+		db_results_set_message(results, "Query response was null", db->vendor, PQresultErrorMessage(res));
 	}
 	else{
-		db->error_code = db_error_code_map(db->vendor, PQresultStatus(res));
+		db_error_code_t code = db_error_code_map(db->vendor, PQresultStatus(res));
 		char *msg = PQresultErrorMessage(res);
 
-		if(db->error_code == db_error_code_fatal){									// remap code to invalid type
+		if(code == db_error_code_fatal){											// remap code to invalid type
 			if(strstr(msg, "invalid input syntax") != NULL){
-				db_error_set_message(db, "Query has invalid param syntax", msg);
-				db->error_code = db_error_code_invalid_type;
+				results->code = db_error_code_invalid_type;
+				db_results_set_message(results, "Query has invalid param syntax", db->vendor, msg);
 			}
 			else if(strstr(msg, "violates unique constraint") != NULL){				// remap unique
-				db_error_set_message(db, "Entry already in database", msg);
-				db->error_code = db_error_code_unique_constrain_violation;
+	   			results->code = db_error_code_unique_constrain_violation;
+				db_results_set_message(results, "Entry already in database", db->vendor, msg);
 			}
-			else if(strstr(msg, "too long") != NULL){				// remap unique
-				db_error_set_message(db, "Invalid range for field", msg);
-				db->error_code = db_error_code_invalid_range;
+			else if(strstr(msg, "too long") != NULL){								// remap unique
+	   			results->code = db_error_code_invalid_range;
+				db_results_set_message(results, "Invalid range for field", db->vendor, msg);
 			}
-			else if(strstr(msg, "too short") != NULL){				// remap unique
-				db_error_set_message(db, "Invalid range for field", msg);
-				db->error_code = db_error_code_invalid_range;
+			else if(strstr(msg, "too short") != NULL){								// remap unique
+	   			results->code = db_error_code_invalid_range;
+				db_results_set_message(results, "Invalid range for field", db->vendor, msg);
 			}
 			else{
-				db_error_set_message(db, "Fatal error", msg);
+				db_results_set_message(results, "Fatal error", db->vendor, msg);
 			}
 		}
-		else if(PQntuples(res) == 0){												// remap to zero results
-			db_error_set_message(db, "Query returned 0 results", msg);
-			db->error_code = db_error_code_zero_results;
-		}
-		else if(db->error_code == db_error_code_ok){								// complement ok message
-			db_error_set_message(db, "Query executed successfully", msg);
+		else if(code == db_error_code_ok){								// complement ok message
+			db_results_set_message(results, "Query executed successfully", db->vendor, msg);
 		}
 	}
 
-	if(db->error_code == db_error_code_ok){
-		db_process_entries_postgres(db, res);
+	if(results->code == db_error_code_ok){
+		db_process_entries_postgres(results, res);
 	}
 	
     PQclear(res);
-	return db->error_code;
+	return results;
 }
