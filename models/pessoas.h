@@ -4,7 +4,7 @@
 #include "../src/db.h"
 
 // insert model into db
-db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascimento, size_t stack_count, char **stack){
+db_results_t *pessoas_insert(db_t *db, char *nome, char *apelido, char *nascimento, size_t stack_count, char **stack){
 	char *query = "insert into pessoas "
 	 	"(id, apelido, nome, nascimento, stack) "
 	 	"values("
@@ -16,7 +16,7 @@ db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascim
 		") "
 		"returning id";
 
-	return db_exec(db, query, 4, 
+	return db_exec_conn(db, 1, query, 4, 
 		db_param_string(apelido),
 		db_param_string(nome),
 		db_param_string(nascimento),
@@ -25,7 +25,7 @@ db_error_code_t pessoas_insert(db_t *db, char *nome, char *apelido, char *nascim
 }
 
 // search
-db_error_code_t pessoas_select_search(db_t *db, char *searchParam, unsigned int limit){
+db_results_t *pessoas_select_search(db_t *db, char *searchParam, unsigned int limit){
 	char *query = "select * "
 		"from pessoas "
 		"where ("
@@ -35,28 +35,28 @@ db_error_code_t pessoas_select_search(db_t *db, char *searchParam, unsigned int 
 		") limit $2;";
 
 
-	return db_exec(db, query, 2, 
+	return db_exec_conn(db, 1, query, 2, 
 		db_param_string(searchParam),
 		db_param_integer((int*)&limit)
 	);
 }
 
 // search
-db_error_code_t pessoas_select_uuid(db_t *db, char *uuid){
+db_results_t *pessoas_select_uuid(db_t *db, char *uuid){
 	char *query = "select * "
 		"from pessoas "
 		"where id = $1";
 
-	return db_exec(db, query, 1, 
+	return db_exec_conn(db, 1, query, 1, 
 		db_param_string(uuid)
 	);
 }
 
 // count
-db_error_code_t pessoas_count(db_t *db){
+db_results_t *pessoas_count(db_t *db){
 	char *query = "select count(*) from pessoas;";
 
-	return db_exec(db, query, 0);
+	return db_exec_conn(db, 1, query, 0);
 }
 
 #endif

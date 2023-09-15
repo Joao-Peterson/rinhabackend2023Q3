@@ -14,7 +14,7 @@ db_error_code_t db_error_code_map(db_vendor_t vendor, int code);
 db_error_code_t db_connect_function_map(db_t *db);
 
 // close db map
-void db_close_function_map(db_t *db);
+void db_destroy_function_map(db_t *db);
 
 // exec query map
 static db_results_t *db_exec_function_map(db_t *db, size_t connection_num, char *query, size_t params_count, va_list params);

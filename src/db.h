@@ -116,7 +116,7 @@ db_t *db_create(db_vendor_t type, size_t num_connections, char *host, char *port
 db_error_code_t db_connect(db_t *db);
 
 // poll current db status. Use this function before accessing db->state
-db_state_t db_stat_function_map(db_t *db);
+db_state_t db_stat(db_t *db);
 
 // close connection
 void db_destroy(db_t *db);

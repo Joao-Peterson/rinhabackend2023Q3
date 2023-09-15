@@ -14,7 +14,8 @@
 CC=gcc
 C_FLAGS=-Wall -Wpedantic
 C_FLAGS_RELEASE=-O2
-C_FLAGS_DEBUG=-g -D DEBUG
+C_FLAGS_DEBUG=-g
+# C_FLAGS_DEBUG+=-D DEBUG
 I_FLAGS=-Isrc
 I_FLAGS+=-Ifacil.io
 LD_FLAGS=
@@ -73,6 +74,7 @@ release : build_dir $(BINARY)
 # 	sed -r -i 's/(badge\/Version-)([0-9]\.[0-9]\.[0-9])/\1$(VERSION)/g' README.md $(DIST_DIR)/README.md
 # 	sed -r -i 's/(PROJECT_NUMBER\s+= )([0-9]\.[0-9]\.[0-9])/\1$(VERSION)/g' $(DOC_DIR)/Doxyfile
 
+test : C_FLAGS += $(C_FLAGS_DEBUG)
 test : dbtest.o $(OBJS)
 	$(CC) $(LD_FLAGS) $^ -o $(notdir $@)
 
@@ -93,7 +95,7 @@ clear :
 	@rm -vf */*.o
 	@rm -vf *.o
 
-mem : $(BINARY)
+mem : test
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
 

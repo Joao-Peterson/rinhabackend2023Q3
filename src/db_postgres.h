@@ -33,24 +33,26 @@ static db_error_code_t db_connect_function_postgres(db_t *db){
 
 	db->state = db_state_not_connected;
 
-	const char *keys[5] = {
+	const char *keys[] = {
 		"host",
 		"port",
 		"dbname",
 		"user",
-		"password"
+		"password",
+		NULL
 	};
 
-	char *values[5] = {
+	char *values[] = {
 		db->host,
 		db->port,
 		db->database,
 		db->user,
-		db->password
+		db->password,
+		NULL
 	};
 
 	// check first as sync
-	PGconn *conn = PQconnectdbParams(keys, values, 0);
+	PGconn *conn = PQconnectdbParams((const char *const *)keys, (const char *const *)values, 0);
 	
     if (PQstatus(conn) == CONNECTION_BAD) {
 		// db_error_set_message(db, "Connection to database failed", PQerrorMessage(conn));
@@ -65,7 +67,7 @@ static db_error_code_t db_connect_function_postgres(db_t *db){
 	connections[0] = conn;
 
 	for(size_t i = 1; i < db->context.connections_count; i++){
-		connections[i] = PQconnectStartParams(keys, values, 0);
+		connections[i] = PQconnectStartParams((const char *const *)keys, (const char *const *)values, 0);
 
 		if(connections[i] == NULL){													// on mass creating of connection, if error, free all created ones
 			for(size_t j = i - 1; j >= 0; j--){
@@ -88,18 +90,18 @@ static db_state_t db_stat_function_postgres(db_t *db){
 	if(connections != NULL){
 
 		bool all_ok = true;
-		
+
 		for(size_t i = 0; i < db->context.connections_count; i++){
 			if(connections[i] == NULL)												// any null cionnection is game over
 				return db_state_invalid_db;
 
 			switch(PQconnectPoll(connections[i])){
-				case CONNECTION_BAD:												// if bad return failed
+				case PGRES_POLLING_FAILED:											// if bad return failed
 					db->state = db_state_failed_connection;
 					return db_state_failed_connection;
 					break;
 
-				case CONNECTION_OK:													// when ok just continue to verify others
+				case PGRES_POLLING_OK:												// when ok just continue to verify others
 					break;
 
 				default:															// if any state other than ok or bad, then current status remain
@@ -122,7 +124,7 @@ static db_state_t db_stat_function_postgres(db_t *db){
 }
 
 // close db connection
-static void db_close_function_postgres(db_t *db){
+static void db_destroy_function_postgres(db_t *db){
 	PGconn **connections = db->context.connections;
 
 	if(connections != NULL){

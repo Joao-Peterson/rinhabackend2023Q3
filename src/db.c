@@ -111,7 +111,7 @@ db_state_t db_stat_function_map(db_t *db){
 }
 
 // close db map
-void db_close_function_map(db_t *db){
+void db_destroy_function_map(db_t *db){
 	if(db == NULL) return;
 	
 	free(db->host);
@@ -127,7 +127,7 @@ void db_close_function_map(db_t *db){
 			
 		case db_vendor_postgres:
 		case db_vendor_postgres15:
-			db_close_function_postgres(db);
+			db_destroy_function_postgres(db);
 	}
 
 	free(db);
@@ -197,7 +197,7 @@ db_error_code_t db_connect(db_t *db){
 }
 
 // poll current db status. Use this function before accessing db->state
-db_state_t db_stat_function_map(db_t *db){
+db_state_t db_stat(db_t *db){
 	return db_stat_function_map(db);
 }
 
@@ -381,22 +381,19 @@ void db_results_destroy(db_results_t *results){
 							break;
 
 						case db_type_integer_array:
-								free( ( (int**)(results->entries[i][j].value) ) [elem]);
+							free( ( (int**)(results->entries[i][j].value) ) [elem]);
 							break;
 							
 						case db_type_bool_array:
-							for(size_t elem = 0; elem < results->entries[i][j].count; elem++)
-								free( ( (bool**)(results->entries[i][j].value) ) [elem]);
+							free( ( (bool**)(results->entries[i][j].value) ) [elem]);
 							break;
 
 						case db_type_float_array:
-							for(size_t elem = 0; elem < results->entries[i][j].count; elem++)
-								free( ( (float**)(results->entries[i][j].value) ) [elem]);
+							free( ( (float**)(results->entries[i][j].value) ) [elem]);
 							break;
 
 						case db_type_string_array:
-							for(size_t elem = 0; elem < results->entries[i][j].count; elem++)
-								free( ( (char**)(results->entries[i][j].value) ) [elem]);
+							free( ( (char**)(results->entries[i][j].value) ) [elem]);
 							break;
 
 						// case db_type_blob_array:
@@ -413,12 +410,14 @@ void db_results_destroy(db_results_t *results){
 			free(results->fields[j]);												// free fields names
 	}
 
-	free(results);																	// free results object
+	free(results->entries);
+	free(results->fields);
+	free(results);
 }
 
 // close db connection
-void db_close(db_t *db){
-	db_close_function_map(db);
+void db_destroy(db_t *db){
+	db_destroy_function_map(db);
 }
 
 // print
@@ -431,7 +430,7 @@ void db_print_results(db_results_t *results){
 			for(size_t j = 0; j < results->fields_count; j++){
 				printf("| %s ", results->fields[j]);
 
-				if(j == (results->entries_count - 1)){
+				if(j == (results->fields_count - 1)){
 					printf("|\n");
 				}
 			}	
