@@ -54,7 +54,7 @@ int main(int argq, char **argv, char **envp){
 
 	db_results_t *res;
 
-	res = pessoas_insert(db, "nico", "nico", "20000201", 3, stack);
+	res = pessoas_insert(db, 1, "nico", "nico", "20000201", 3, stack);
 	if(res->code){
 		printf("Insert failed. Postgress: %s\n", res->msg);
 	}else{
@@ -62,7 +62,7 @@ int main(int argq, char **argv, char **envp){
 	}
 	db_results_destroy(res);
 
-	res = pessoas_insert(db, "peterson", "jjpsss peterson joa", "19990206", 3, stack);
+	res = pessoas_insert(db, 1, "peterson", "jjpsss peterson joa", "19990206", 3, stack);
 	if(res->code){
 		printf("Insert failed. Postgress: %s\n", res->msg);
 	}else{
@@ -70,7 +70,7 @@ int main(int argq, char **argv, char **envp){
 	}
 	db_results_destroy(res);
 
-	res = pessoas_select_search(db, "c#", 50);
+	res = pessoas_select_search(db, 1, "c#", 50);
 	if(res->code){
 		printf("Search failed. Postgress: %s\n", res->msg);
 	}else{
@@ -79,7 +79,7 @@ int main(int argq, char **argv, char **envp){
 	}
 	db_results_destroy(res);
 
-	res = pessoas_select_uuid(db, "4dcc0115-f0e7-486f-92a7-2c18109f1956");
+	res = pessoas_select_uuid(db, 1, "4dcc0115-f0e7-486f-92a7-2c18109f1956");
 	if(res->code){
 		printf("Select uuid failed. Postgress: %s\n", res->msg);
 	}else{
@@ -88,7 +88,7 @@ int main(int argq, char **argv, char **envp){
 	}
 	db_results_destroy(res);
 
-	res = pessoas_count(db);
+	res = pessoas_count(db, 1);
 	if(res->code){
 		printf("Count failed. Postgress: %s\n", res->msg);
 	}else{

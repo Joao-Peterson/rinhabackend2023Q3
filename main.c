@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include "src/string+.h"
 #include "facil.io/http.h"
 #include "src/varenv.h"
@@ -29,14 +30,21 @@ int main(int argq, char **argv, char **envp){
 	// try load env var from env file
 	loadEnvVars(NULL);
 
+	char *port = getenv("SERVER_PORT");
+	char *workers_env = getenv("SERVER_WORKERS");
+	char *threads_env = getenv("SERVER_THREADS");
+	int threads = atoi(threads_env);
+	int workers = atoi(workers_env);
+
 	// db connection
-	db = db_create(db_vendor_postgres, 
+	db = db_create(db_vendor_postgres, threads,
 		getenv("DB_HOST"),
 		getenv("DB_PORT"),
 		getenv("DB_DATABASE"),
 		getenv("DB_USER"),
 		getenv("DB_PASSWORD"),
-		getenv("DB_ROLE")
+		getenv("DB_ROLE"),
+		NULL
 	);
 
 	if(db == NULL){
@@ -44,19 +52,28 @@ int main(int argq, char **argv, char **envp){
 		exit(2);
 	}
 
-	if(db_connect(db)){
-		printf(db->error_msg);
-		exit(1);
-	}else{
-		printf(db->error_msg);
+
+	db_connect(db);
+
+	bool wait = true;
+	while(wait){
+		switch(db_stat(db)){
+			default:
+				break;
+
+			case db_state_invalid_db:
+			case db_state_failed_connection:
+				printf("Failed to connect to db\n");
+				exit(1);
+				break;
+			
+			case db_state_connected:
+				wait = false;
+				break;
+		}
 	}
 
-	char *port = getenv("SERVER_PORT");
-	char *workers_env = getenv("SERVER_WORKERS");
-	char *threads_env = getenv("SERVER_THREADS");
-	int threads = atoi(threads_env);
-	int workers = atoi(workers_env);
-
+	// webserver setup
 	http_listen(port, NULL, .on_request = on_request, .log = 1);
 
 	printf("Starting server on port: [%s]\n", port);
@@ -64,7 +81,7 @@ int main(int argq, char **argv, char **envp){
 
 	printf("Stopping server...\n");
 
-	db_close(db);
+	db_destroy(db);
 
 	return 0;
 }
@@ -108,17 +125,20 @@ void on_get(http_s *h){
 
 // count
 void on_get_count(http_s *h){
-	if(pessoas_count(db)){
-		printf("On GET count failed. DB query failed. Database: %s\n", db->error_msg);
+	db_results_t *res = pessoas_count(db, (size_t)pthread_self()); 
+	if(res->code){
+		printf("On GET count failed. DB query failed. Database: %s\n", res->msg);
 		http_send_error(h, http_status_code_InternalServerError);
 	}
 	else{
-		int *count = db_results_read_integer(db, 0, 0);
+		int *count = db_results_read_integer(res, 0, 0);
 		string *response = string_sprint("%d", 15, count != NULL ? *count : -1);
 		http_send_body(h, response->raw, response->len);
 
 		string_destroy(response);
 	}
+
+	db_results_destroy(res);
 }
 
 // search
@@ -137,23 +157,29 @@ void on_get_search(http_s *h){
 	char *tquery = fiobj_obj2cstr(value).data;	
 
 	// db call
-	switch(pessoas_select_search(db, tquery, 50)){
-		case db_error_code_zero_results:
-			http_send_body(h, "[]", 2);
-			break;			
+	db_results_t *res = pessoas_select_search(db, (size_t)pthread_self(), tquery, 50);
 
+	if(res->entries_count == 0){
+		http_send_body(h, "[]", 2);
+		db_results_destroy(res);
+		return;
+	}
+	
+	switch(res->code){
 		case db_error_code_ok:
 		{
-			char *json = db_json_entries(db, false);
+			char *json = db_json_entries(res, false);
 			http_send_body(h, json, strlen(json));
 			free(json);
 		}
 		break;			
 
 		default:
-			printf("On GET search failed. DB query failed. Database: %s\n", db->error_msg);
+			printf("On GET search failed. DB query failed. Database: %s\n", res->msg);
 			http_send_error(h, http_status_code_InternalServerError);
 	}
+	
+	db_results_destroy(res);
 }
 
 // get uuid
@@ -182,19 +208,23 @@ void on_get_uuid(http_s *h){
 	char *uuid = cursor + 1;
 
 	// db call
-	switch(pessoas_select_uuid(db, uuid)){
-		case db_error_code_zero_results:
-			http_send_error(h, http_status_code_BadRequest);
-			break;
+	db_results_t *res = pessoas_select_uuid(db, (size_t)pthread_self(), uuid);
 
+	if(res->entries_count == 0){
+		http_send_error(h, http_status_code_BadRequest);
+		db_results_destroy(res);
+		return;
+	}
+	
+	switch(res->code){
 		case db_error_code_invalid_type:
 			h->status = http_status_code_UnprocessableEntity;
-			http_send_body(h, db->error_msg, strlen(db->error_msg));
+			http_send_body(h, res->msg, strlen(res->msg));
 			break;
 
 		case db_error_code_ok:
 		{
-			char *json = db_json_entries(db, true);
+			char *json = db_json_entries(res, true);
 			http_send_body(h, json, strlen(json));
 			free(json);
 		}
@@ -204,6 +234,8 @@ void on_get_uuid(http_s *h){
 			http_send_error(h, http_status_code_InternalServerError);
 			break;
 	}
+	
+	db_results_destroy(res);
 }
 
 // post
@@ -238,7 +270,7 @@ void on_post(http_s *h){
 
 	FIOBJ stackobj = fiobj_hash_get(h->params, key);
 	size_t stacksize;
-	db_error_code_t dbcode;
+	db_results_t *res;
 
 	if(
 		(stackobj == FIOBJ_INVALID) ||
@@ -246,7 +278,7 @@ void on_post(http_s *h){
 		(fiobj_ary_count(stackobj) == 0)
 	){																				// if no stack
 		stacksize = 0;
-		dbcode = pessoas_insert(db, nome, apelido, nascimento, stacksize, NULL);
+		res = pessoas_insert(db, (size_t)pthread_self(), nome, apelido, nascimento, stacksize, NULL);
 	}
 	else{																			// with valid stack
 		stacksize = fiobj_ary_count(stackobj);
@@ -257,22 +289,22 @@ void on_post(http_s *h){
 			stack[i] = fiobj_obj2cstr(fiobj_ary_index(stackobj, i)).data;
 		}
 
-		dbcode = pessoas_insert(db, nome, apelido, nascimento, stacksize, stack);
+		res = pessoas_insert(db, (size_t)pthread_self(), nome, apelido, nascimento, stacksize, stack);
 	}
 
 	// db call
-	switch(dbcode){
+	switch(res->code){
 		case db_error_code_ok:
 		{
 			// header Location
 			FIOBJ name = fiobj_str_new("Location", 8);
 			FIOBJ value = fiobj_str_new(NULL, 0);
-			fiobj_str_printf(value, "/pessoas/%s", db_results_read_string(db, 0, 0));
+			fiobj_str_printf(value, "/pessoas/%s", db_results_read_string(res, 0, 0));
 			http_set_header(h, name, value);
 
 			// json body id
 			FIOBJ json = fiobj_str_new(NULL, 0);
-			fiobj_str_printf(json, "{\"id\":\"%s\"}", db_results_read_string(db, 0, 0));
+			fiobj_str_printf(json, "{\"id\":\"%s\"}", db_results_read_string(res, 0, 0));
 			fio_str_info_s jsonstr = fiobj_obj2cstr(json);
 			
 			h->status = http_status_code_Created;
@@ -287,16 +319,17 @@ void on_post(http_s *h){
 		case db_error_code_invalid_type:
 		case db_error_code_unique_constrain_violation:
 			h->status = http_status_code_UnprocessableEntity;
-			http_send_body(h, db->error_msg, strlen(db->error_msg));
+			http_send_body(h, res->msg, strlen(res->msg));
 			break;
 
 		default:
 			h->status = http_status_code_InternalServerError;
-			http_send_body(h, db->error_msg, strlen(db->error_msg));
+			http_send_body(h, res->msg, strlen(res->msg));
 			break;
 	}
 
 	// free stuff
 	fiobj_free(key);
+	db_results_destroy(res);
 }
 
