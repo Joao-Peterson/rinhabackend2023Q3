@@ -134,10 +134,8 @@ void db_destroy_function_map(db_t *db){
 }
 
 // exec query map
-static db_results_t *db_exec_function_map(db_t *db, size_t connection_num, char *query, size_t params_count, va_list params){
+static db_results_t *db_exec_function_map(db_t *db, void *connection, char *query, size_t params_count, va_list params){
 	if(db == NULL) return db_result_new_nulldb();
-
-	if(connection_num >= db->context.connections_count) return db_results_new(0, 0, db_error_code_invalid_range, "Desired connection exceeds the number of connections available");
 
 	switch(db->vendor){
 		default: 
@@ -145,7 +143,7 @@ static db_results_t *db_exec_function_map(db_t *db, size_t connection_num, char 
 			
 		case db_vendor_postgres:
 		case db_vendor_postgres15:
-			return db_exec_function_postgres(db, connection_num, query, params_count, params);
+			return db_exec_function_postgres(db, connection, query, params_count, params);
 	}
 }
 
@@ -177,6 +175,13 @@ db_t *db_create(db_vendor_t type, size_t num_connections, char *host, char *port
 
 	db_t *db = (db_t*)calloc(1, sizeof(db_t));
 
+	db->context.connections_count = num_connections;
+	if(pthread_mutex_init(&(db->context.connections_lock), NULL) != 0){
+		if(code != NULL) *code = db_error_code_unknown;
+		free(db);
+		return NULL;
+	}
+
 	db->host     	= strdup(host);
 	db->port     	= port != NULL ? strdup(port) : strdup(db_default_port_map(type));
 	db->database 	= strdup(database);
@@ -185,8 +190,6 @@ db_t *db_create(db_vendor_t type, size_t num_connections, char *host, char *port
 	db->role     	= role != NULL ? strdup(role) : strdup("");
 	db->state 		= db_state_not_connected;
 	
-	db->context.connections_count = num_connections;
-
 	if(code != NULL) *code = db_error_code_ok;
 	return db;
 }
@@ -350,20 +353,47 @@ db_param_t db_param_string_array(char **value, size_t count){
 // 	return db_param_new(db_type_blob, true, count, (void*)value, size_elem); 
 // }
 
+// try and get a connection
+static void *db_request_conn(db_t *db){
+	switch(db->vendor){
+		default:
+		case db_vendor_invalid:
+			return NULL;
+			break;
+		
+		case db_vendor_postgres15:
+		case db_vendor_postgres:
+			return db_request_conn_postgres(db);
+			break;
+	}
+}
+
+// return used connection
+static void db_return_conn(db_t *db, void *conn){
+	switch(db->vendor){
+		default:
+		case db_vendor_invalid:
+			break;
+		
+		case db_vendor_postgres15:
+		case db_vendor_postgres:
+			db_return_conn_postgres(db, conn);
+			break;
+	}
+}
+
 // exec query
 db_results_t *db_exec(db_t *db, char *query, size_t params_count, ...){
 	va_list params;
 	va_start(params, params_count);
-	db_results_t *res = db_exec_function_map(db, 0, query, params_count, params);
-	va_end(params);
-	return res;
-}
+	
+	void *conn = db_request_conn(db);
+	if(conn == NULL) return db_results_new(0, 0, db_error_code_fatal, "Could not get connnection from connection pool");
 
-// exec a query using a specififc connection. return is always NOT NULL, no need to check
-db_results_t *db_exec_conn(db_t *db, size_t connection_num, char *query, size_t params_count, ...){
-	va_list params;
-	va_start(params, params_count);
-	db_results_t *res = db_exec_function_map(db, connection_num, query, params_count, params);
+	db_results_t *res = db_exec_function_map(db, conn, query, params_count, params);
+
+	db_return_conn(db, conn);
+
 	va_end(params);
 	return res;
 }

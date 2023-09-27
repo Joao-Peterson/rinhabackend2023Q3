@@ -62,18 +62,6 @@ build : build_dir $(BINARY)
 release : C_FLAGS += $(C_FLAGS_RELEASE)
 release : build_dir $(BINARY)
 
-# dist : 
-# 	@mkdir -p $(DIST_DIR)
-# 	@cp -vr $(BUILD_DIR)/*.so $(DIST_DIR)/ 
-# 	@cp -vr $(BUILD_DIR)/*.a $(DIST_DIR)/ 
-# 	@cp -vr $(SRC_DIR)/*.h $(DIST_DIR)/ 
-# 	@cp -v  README.md $(DIST_DIR)/ 
-# 	sed -r -i 's/(\{AUTHOR\})/$(AUTHOR)/g' $(DIST_DIR)/*.h 
-# 	sed -r -i 's/(\{YEAR\})/$(YEAR)/g' $(DIST_DIR)/*.h 
-# 	sed -r -i 's/(\{VERSION\})/$(VERSION)/g' $(DIST_DIR)/*.h 
-# 	sed -r -i 's/(badge\/Version-)([0-9]\.[0-9]\.[0-9])/\1$(VERSION)/g' README.md $(DIST_DIR)/README.md
-# 	sed -r -i 's/(PROJECT_NUMBER\s+= )([0-9]\.[0-9]\.[0-9])/\1$(VERSION)/g' $(DOC_DIR)/Doxyfile
-
 test : C_FLAGS += $(C_FLAGS_DEBUG)
 test : dbtest.o $(OBJS)
 	$(CC) $(LD_FLAGS) $^ -o $(notdir $@)
@@ -95,7 +83,7 @@ clear :
 	@rm -vf */*.o
 	@rm -vf *.o
 
-mem : test
+mem : $(BINARY)
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
 
@@ -105,8 +93,11 @@ profile : $(BINARY)
 image :
 	sudo docker build -t petersonsheff/rinhabackend2023q3capi .
 
-up :
+up : image
 	sudo docker-compose up -d
 
 down :
 	sudo docker-compose down
+
+gatling : down up
+

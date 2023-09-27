@@ -31,6 +31,9 @@ static db_error_code_t db_error_code_map_postgres(int code){
 // connection function
 static db_error_code_t db_connect_function_postgres(db_t *db){
 
+	if(!PQisthreadsafe())
+		return db_error_code_invalid_db;
+
 	db->state = db_state_not_connected;
 
 	const char *keys[] = {
@@ -64,12 +67,13 @@ static db_error_code_t db_connect_function_postgres(db_t *db){
 	// create other connections
 	PGconn **connections = calloc(db->context.connections_count, sizeof(PGconn*));
 	db->context.connections = connections;
+	db->context.available_connection = 0;
 	connections[0] = conn;
 
 	for(size_t i = 1; i < db->context.connections_count; i++){
 		connections[i] = PQconnectStartParams((const char *const *)keys, (const char *const *)values, 0);
 
-		if(connections[i] == NULL){													// on mass creating of connection, if error, free all created ones
+		if(connections[i] == NULL){													// on mass creating of connections, if error, free all created ones
 			for(size_t j = i - 1; j >= 0; j--){
 				PQfinish(connections[i]);
 			}
@@ -81,6 +85,36 @@ static db_error_code_t db_connect_function_postgres(db_t *db){
 
 	db->state = db_state_connecting;
 	return db_error_code_ok;
+}
+
+// try and get a connection
+static inline PGconn *db_request_conn_postgres(db_t *db){
+	if(db->state != db_state_connected) return NULL;
+	if(db->context.available_connection >= db->context.connections_count) return NULL;
+
+	pthread_mutex_lock(&(db->context.connections_lock));
+	
+	PGconn **conns = db->context.connections;
+	PGconn *available_connection = conns[db->context.available_connection];
+	db->context.available_connection++;
+
+	pthread_mutex_unlock(&(db->context.connections_lock));
+
+	return available_connection;
+}
+
+// return used connection
+static inline void db_return_conn_postgres(db_t *db, PGconn *conn){
+	if(db->context.available_connection == 0) return;
+	
+	PGconn **conns = db->context.connections;
+	
+	pthread_mutex_lock(&(db->context.connections_lock));
+
+	db->context.available_connection--;
+	conns[db->context.available_connection] = conn; 
+
+	pthread_mutex_unlock(&(db->context.connections_lock));
 }
 
 // stat connection
@@ -762,9 +796,9 @@ static void db_process_entries_postgres(db_results_t *results, PGresult *res){
 	}
 }
 
-static db_results_t *db_exec_function_postgres(db_t *db, size_t connection_num, char *query, size_t params_count, va_list params){
+static db_results_t *db_exec_function_postgres(db_t *db, void *connection, char *query, size_t params_count, va_list params){
 	PGresult *res;
-	PGconn *conn = ((PGconn**)(db->context.connections))[connection_num];
+	PGconn *conn = (PGconn*)connection;
 
 	if(params_count == 0){															// no params
 		res = PQexec(conn, query);

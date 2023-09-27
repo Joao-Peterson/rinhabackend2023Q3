@@ -1,3 +1,7 @@
+gatling/deps
+gatling/user-files/results
+gatling/user-files/resources
+
 test
 massif.*
 

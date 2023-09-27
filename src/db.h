@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <pthread.h>
 
 #define DB_MSG_LEN 300
 
@@ -102,8 +103,10 @@ typedef struct{
 	db_state_t state;
 
 	struct{
+		pthread_mutex_t connections_lock;
 		size_t connections_count;
 		void *connections;
+		size_t available_connection;
 	}context;
 }db_t;
 
@@ -156,9 +159,6 @@ db_param_t db_param_string_array(char **value, size_t count);
 
 // exec a query. return is always NOT NULL, no need to check
 db_results_t *db_exec(db_t *db, char *query, size_t params_count, ...);
-
-// exec a query using a specififc connection. return is always NOT NULL, no need to check
-db_results_t *db_exec_conn(db_t *db, size_t connection_num, char *query, size_t params_count, ...);
 
 // read integer value from the results of a query. NULL if null | non existent | invalid. Use db_results_isvalid() | db_results_isnull() | db_results_isvalid_and_notnull() to check if the value is what you expect
 int *db_results_read_integer(db_results_t *results, uint32_t entry, uint32_t field);

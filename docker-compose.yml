@@ -7,6 +7,7 @@ networks:
 x-api-config: &api-config 
   environment:
     - SERVER_PORT=5000
+    - SERVER_DB_CONNS=30
     - SERVER_THREADS=50
     - SERVER_WORKERS=1
     - DB_HOST=db

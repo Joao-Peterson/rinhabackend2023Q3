@@ -33,11 +33,13 @@ int main(int argq, char **argv, char **envp){
 	char *port = getenv("SERVER_PORT");
 	char *workers_env = getenv("SERVER_WORKERS");
 	char *threads_env = getenv("SERVER_THREADS");
+	char *conns_env = getenv("SERVER_DB_CONNS");
 	int threads = atoi(threads_env);
+	int conns = atoi(conns_env);
 	int workers = atoi(workers_env);
 
 	// db connection
-	db = db_create(db_vendor_postgres, threads,
+	db = db_create(db_vendor_postgres, conns,
 		getenv("DB_HOST"),
 		getenv("DB_PORT"),
 		getenv("DB_DATABASE"),
@@ -125,7 +127,7 @@ void on_get(http_s *h){
 
 // count
 void on_get_count(http_s *h){
-	db_results_t *res = pessoas_count(db, (size_t)pthread_self()); 
+	db_results_t *res = pessoas_count(db); 
 	if(res->code){
 		printf("On GET count failed. DB query failed. Database: %s\n", res->msg);
 		http_send_error(h, http_status_code_InternalServerError);
@@ -157,7 +159,7 @@ void on_get_search(http_s *h){
 	char *tquery = fiobj_obj2cstr(value).data;	
 
 	// db call
-	db_results_t *res = pessoas_select_search(db, (size_t)pthread_self(), tquery, 50);
+	db_results_t *res = pessoas_select_search(db, tquery, 50);
 
 	if(res->entries_count == 0){
 		http_send_body(h, "[]", 2);
@@ -208,7 +210,7 @@ void on_get_uuid(http_s *h){
 	char *uuid = cursor + 1;
 
 	// db call
-	db_results_t *res = pessoas_select_uuid(db, (size_t)pthread_self(), uuid);
+	db_results_t *res = pessoas_select_uuid(db, uuid);
 
 	if(res->entries_count == 0){
 		http_send_error(h, http_status_code_BadRequest);
@@ -278,7 +280,7 @@ void on_post(http_s *h){
 		(fiobj_ary_count(stackobj) == 0)
 	){																				// if no stack
 		stacksize = 0;
-		res = pessoas_insert(db, (size_t)pthread_self(), nome, apelido, nascimento, stacksize, NULL);
+		res = pessoas_insert(db, nome, apelido, nascimento, stacksize, NULL);
 	}
 	else{																			// with valid stack
 		stacksize = fiobj_ary_count(stackobj);
@@ -289,7 +291,7 @@ void on_post(http_s *h){
 			stack[i] = fiobj_obj2cstr(fiobj_ary_index(stackobj, i)).data;
 		}
 
-		res = pessoas_insert(db, (size_t)pthread_self(), nome, apelido, nascimento, stacksize, stack);
+		res = pessoas_insert(db, nome, apelido, nascimento, stacksize, stack);
 	}
 
 	// db call
