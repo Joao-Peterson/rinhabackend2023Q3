@@ -90,7 +90,6 @@ int main(int argq, char **argv, char **envp){
 
 // main callback
 void on_request(http_s *h){
-	// TODO url parsing: https://facil.io/0.7.x/fio#url-parsing
 	if(fiobj_str_cmp(h->method, "GET")){
 		on_get(h);
 	}

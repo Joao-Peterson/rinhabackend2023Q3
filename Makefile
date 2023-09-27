@@ -1,13 +1,15 @@
 # Commands:
 # ---------------------------------------------------------------
-# 	build 		: build lib objects and test file for testing 
-# 	release 	: build lib objects, archive and organize the lib files for use in the 'dist/' folder
-# 	dist 		: dist just organizes the lib files for use in the 'dist/' folder
-# 	clear 		: clear compiled executables
-# 	install  	: installs binaries, includes and libs to the specified "INSTALL_" path variables
-# 	label  		: update the author, year and version using sed in the specified files 
-# 	mem  		: runs valgrind on the test binary 
-# 	doc  		: runs doxygen and generate output on /docs folder 
+# 	build 		: build program in debug mode
+# 	release 	: build program in release mode
+# 	clear 		: clear all build files and binaries
+# 	test 		: build test binary
+# 	mem  		: runs valgrind for mem leak checks on the program 
+# 	profile  	: runs valgrind for mem profiling on the program 
+# 	image  		: builds docker image for the program
+# 	up  		: runs docker compose up for the app, nginx and postgres
+# 	down  		: runs docker compose down
+# 	gatling  	: runs gatling with predefined test on the docker compose stack
 
 # Options -------------------------------------------------------
 
@@ -50,31 +52,41 @@ SOURCES+=facil.io/websockets.c
 BUILD_DIR=build
 DIST_DIR=dist
 
+GATLING_VERSION=3.9.5
+GATLING_TOOL=gatling/gatling/bin/gatling.sh
+
 # DON'T EDIT -----------------------------------------------------
 
 OBJS:=$(subst .c,.o,$(SOURCES))
 
-.PHONY : build clear build_dir dist_dir dist
+.PHONY : build clear build_dir dist_dir dist gatling
 
+# debug build
 build : C_FLAGS += $(C_FLAGS_DEBUG)
 build : build_dir $(BINARY)
 
+# release build
 release : C_FLAGS += $(C_FLAGS_RELEASE)
 release : build_dir $(BINARY)
 
+# test binary build
 test : C_FLAGS += $(C_FLAGS_DEBUG)
 test : dbtest.o $(OBJS)
 	$(CC) $(LD_FLAGS) $^ -o $(notdir $@)
 
+# C binary build rule
 $(BINARY) : main.o $(OBJS)
 	$(CC) $(LD_FLAGS) $^ -o $(notdir $@)
 
+# C objects build rule
 %.o : %.c
 	$(CC) $(C_FLAGS) $(I_FLAGS) -c $^ -o $@
 
+# make output dir
 build_dir : 
 	@mkdir -p $(BUILD_DIR)
 
+# clear build files
 clear : 
 	@rm -vrdf $(BUILD_DIR)
 	@rm -vrdf $(DIST_DIR)
@@ -83,21 +95,51 @@ clear :
 	@rm -vf */*.o
 	@rm -vf *.o
 
+### Valgrind stuff (memory leak cheker and profiler)
+
+# check for leaks
 mem : $(BINARY)
 	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
 # valgrind --tool=callgrind $(TEST_EXE)
 
+# profile memory consuption
 profile : $(BINARY)
 	valgrind --tool=massif --time-unit=B ./$<
 
-image :
-	sudo docker build -t petersonsheff/rinhabackend2023q3capi .
+### Docker stuff
 
+# create image
+image :
+	sudo docker build -t rinhabackend2023q3capi .
+
+# compose up
 up : image
 	sudo docker-compose up -d
 
+# compose down
 down :
 	sudo docker-compose down
 
-gatling : down up
+### Gatling stuff
 
+# install gatling tool
+$(GATLING_TOOL) :
+	@echo "Downloading Gatling $(GATLING_VERSION)"
+	@rm -rd gatling/gatling
+	@curl -fsSL "https://repo1.maven.org/maven2/io/gatling/highcharts/gatling-charts-highcharts-bundle/$(GATLING_VERSION)/gatling-charts-highcharts-bundle-$(GATLING_VERSION)-bundle.zip" > ./gatling/gatling.zip
+	@unzip gatling/gatling.zip -d gatling
+	@mv gatling/gatling-charts-highcharts-bundle-$(GATLING_VERSION) gatling/gatling
+	@rm gatling/gatling.zip
+	@echo "Gatling installed!"
+
+gatling : $(GATLING_TOOL) down up
+	@GATLING_HOME=./
+	sh $(GATLING_TOOL) \
+	-rm local \
+	-s RinhaBackendSlimSimulation \
+	-rd "Simulação RinhaBackend2023Q3 - C API" \
+	-rf ../results \
+	-sf ../simulations \
+	-rsf ../resources
+	@sleep 3
+	@curl -fsSL "http://localhost:9999/contagem-pessoas" > count.txt

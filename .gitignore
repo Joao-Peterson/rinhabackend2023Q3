@@ -1,6 +1,9 @@
-gatling/deps
-gatling/user-files/results
-gatling/user-files/resources
+count.txt
+
+gatling/gatling/*
+gatling/results/*
+gatling/resources/*
+gatling/resources2
 
 test
 massif.*
