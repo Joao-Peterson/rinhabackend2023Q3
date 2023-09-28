@@ -98,13 +98,16 @@ clear :
 ### Valgrind stuff (memory leak cheker and profiler)
 
 # check for leaks
-mem : $(BINARY)
-	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$<
+mem : build
+	@sudo docker-compose down
+	@sudo docker-compose up db -d
+	@sleep 5
+	valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(BINARY)
 # valgrind --tool=callgrind $(TEST_EXE)
 
 # profile memory consuption
-profile : $(BINARY)
-	valgrind --tool=massif --time-unit=B ./$<
+profile : build
+	valgrind --tool=massif --time-unit=B ./$(BINARY)
 
 ### Docker stuff
 
@@ -133,13 +136,45 @@ $(GATLING_TOOL) :
 	@echo "Gatling installed!"
 
 gatling : $(GATLING_TOOL) down up
-	@GATLING_HOME=./
 	sh $(GATLING_TOOL) \
 	-rm local \
-	-s RinhaBackendSlimSimulation \
+	-s RinhaBackendSimulation \
 	-rd "Simulação RinhaBackend2023Q3 - C API" \
 	-rf ../results \
 	-sf ../simulations \
 	-rsf ../resources
-	@sleep 3
+	@sleep 5
 	@curl -fsSL "http://localhost:9999/contagem-pessoas" > count.txt
+
+gatling-slim : $(GATLING_TOOL) down up
+	sh $(GATLING_TOOL) \
+	-rm local \
+	-s RinhaBackendSlimSimulation \
+	-rd "Simulação Slim RinhaBackend2023Q3 - C API" \
+	-rf ../results \
+	-sf ../simulations \
+	-rsf ../resources
+	@sleep 5
+	@curl -fsSL "http://localhost:9999/contagem-pessoas" > count.txt
+
+gatling-test : $(GATLING_TOOL)
+	sh $(GATLING_TOOL) \
+	-rm local \
+	-s TestSimulation \
+	-rd "Simulação Teste RinhaBackend2023Q3 - C API" \
+	-rf ../results \
+	-sf ../simulations \
+	-rsf ../resources
+	@sleep 5
+	@curl -fsSL "http://localhost:9999/contagem-pessoas" > count.txt
+
+gatling-local : build
+	sh $(GATLING_TOOL) \
+	-rm local \
+	-s LocalTestSimulation \
+	-rd "Simulação Teste (Local) RinhaBackend2023Q3 - C API" \
+	-rf ../results \
+	-sf ../simulations \
+	-rsf ../resources
+	@sleep 5
+	@curl -fsSL "http://localhost:5000/contagem-pessoas" > count.txt

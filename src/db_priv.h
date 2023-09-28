@@ -2,6 +2,7 @@
 #define _DB_HEADER_PRIV_
 
 #include "db.h"
+#include <stdarg.h>
 
 // ------------------------------------------------------------ Maps ---------------------------------------------------------------
 
@@ -23,6 +24,9 @@ static db_results_t *db_exec_function_map(db_t *db, void *connection, char *quer
 
 // create new result object
 db_results_t *db_results_new(int64_t entries, int64_t fields, db_error_code_t code, char *msg);
+
+// create new result object
+db_results_t *db_results_new_fmt(int64_t entries, int64_t fields, db_error_code_t code, char *fmt, ...);
 
 // set result msg
 void db_results_set_message(db_results_t *results, char *msg, db_vendor_t vendor, char *vendor_msg);

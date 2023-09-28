@@ -29,6 +29,23 @@ db_results_t *db_results_new(int64_t entries, int64_t fields, db_error_code_t co
 	return result;
 }
 
+// create new result fmt
+db_results_t *db_results_new_fmt(int64_t entries, int64_t fields, db_error_code_t code, char *fmt, ...){
+	va_list args;
+	va_start(args, fmt);
+
+	db_results_t *result = calloc(1, sizeof(db_results_t));
+
+	result->entries_count = entries;
+	result->fields_count = fields;
+	result->code = code;
+
+	vsnprintf(result->msg, DB_MSG_LEN - 1 ,fmt, args);
+
+	va_end(args);
+	return result;
+}
+
 // create new result object for null db
 db_results_t *db_result_new_nulldb(){
 	return db_results_new(0, 0, db_error_code_invalid_db, "Database passed was null");
@@ -387,8 +404,19 @@ db_results_t *db_exec(db_t *db, char *query, size_t params_count, ...){
 	va_list params;
 	va_start(params, params_count);
 	
-	void *conn = db_request_conn(db);
-	if(conn == NULL) return db_results_new(0, 0, db_error_code_fatal, "Could not get connnection from connection pool");
+	void *conn;
+	int retries = DB_CONN_POOL_RETRY;
+	while(retries){
+		conn = db_request_conn(db);
+
+		if(conn == NULL)
+			retries--;
+		else
+			break;
+	}
+
+	if(retries == 0 && conn == NULL)
+		return db_results_new_fmt(0, 0, db_error_code_fatal, "Could not get connnection from connection pool. Connection available: [%lu]. Connection count: [%lu]", db->context.available_connection, db->context.connections_count);
 
 	db_results_t *res = db_exec_function_map(db, conn, query, params_count, params);
 

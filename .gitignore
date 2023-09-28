@@ -1,9 +1,8 @@
+log.txt
 count.txt
 
 gatling/gatling/*
 gatling/results/*
-gatling/resources/*
-gatling/resources2
 
 test
 massif.*

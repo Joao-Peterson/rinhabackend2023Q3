@@ -8,16 +8,17 @@ Queria fazer no pêlo mesmo, mas como estava em cima da hora vou fazer com o [fa
 - [Rinha de gal... backend](#rinha-de-gal-backend)
 - [Sumário](#sumário)
 - [Execução](#execução)
-  - [Local](#local)
-  - [Docker compose](#docker-compose)
+	- [Local](#local)
+	- [Docker compose](#docker-compose)
 - [Utilização](#utilização)
 - [Gatling](#gatling)
 - [Funcionamento](#funcionamento)
-  - [Web](#web)
-    - [Roteamento](#roteamento)
-  - [Banco de dados](#banco-de-dados)
-  - [.env](#env)
+	- [Web](#web)
+		- [Roteamento](#roteamento)
+	- [Banco de dados](#banco-de-dados)
+	- [.env](#env)
 - [TODO](#todo)
+- [Takeaways](#takeaways)
 
 # Execução
 
@@ -300,13 +301,13 @@ Temos um util [varenv.h](varenv.h) para carregar arquivos `.env` e settar as vá
 loadEnvVars(NULL);
 ```
 
-
 # TODO
 
 - Redis Cache
 - Correct search on databae, remove LIKE type search
-- Docker compose network to type host
-- Transaction to database
-  - data integrity with multiple instaces
-  - performance
-- Gatling
+
+# Takeaways
+
+* Containers docker em modo `network_mode: host` são masi performantes. Ao que tudo indica, a network padrão modo bridge possuí processamente extra sobre ele que afeta o desempenho, enquanto que quando se usa o host não há essa limitação
+* Webservers performantes usam uma thread para cada conexão, utilizando uma thread pool como mecanismo para tal 
+* Similarmente, queries para banco de dados usam uma conexão para cada thread, utilizando uma connection pool 

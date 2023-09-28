@@ -54,7 +54,6 @@ int main(int argq, char **argv, char **envp){
 		exit(2);
 	}
 
-
 	db_connect(db);
 
 	bool wait = true;
@@ -66,6 +65,7 @@ int main(int argq, char **argv, char **envp){
 			case db_state_invalid_db:
 			case db_state_failed_connection:
 				printf("Failed to connect to db\n");
+				db_destroy(db);
 				exit(1);
 				break;
 			
@@ -276,6 +276,7 @@ void on_post(http_s *h){
 	if(
 		(stackobj == FIOBJ_INVALID) ||
 		(FIOBJ_IS_NULL(stackobj)) ||
+		(!FIOBJ_TYPE_IS(stackobj, FIOBJ_T_ARRAY)) ||
 		(fiobj_ary_count(stackobj) == 0)
 	){																				// if no stack
 		stacksize = 0;
@@ -320,11 +321,35 @@ void on_post(http_s *h){
 		case db_error_code_invalid_type:
 		case db_error_code_unique_constrain_violation:
 			h->status = http_status_code_UnprocessableEntity;
+
+			// printf("[%s.%i] (%s) [DEBUG] UnprocessableEntity: \n"
+			// 	"nome:       %s\n"
+			// 	"apelido:    %s\n"
+			// 	"nascimento: %s\n"
+			// 	"stack size: %lu\n"
+			// 	"\n"
+			// 	"Database msg: '%s'\n"
+			// 	, __FILE__, __LINE__, __func__, 
+			// 	nome, apelido, nascimento, stacksize, res->msg
+			// );
+			
 			http_send_body(h, res->msg, strlen(res->msg));
 			break;
 
 		default:
 			h->status = http_status_code_InternalServerError;
+			
+			printf("[%s.%i] (%s) [DEBUG] InternalServerError: \n"
+				"nome:       %s\n"
+				"apelido:    %s\n"
+				"nascimento: %s\n"
+				"stack size: %lu\n"
+				"\n"
+				"Database msg: '%s'\n"
+				, __FILE__, __LINE__, __func__, 
+				nome, apelido, nascimento, stacksize, res->msg
+			);
+
 			http_send_body(h, res->msg, strlen(res->msg));
 			break;
 	}
