@@ -3,6 +3,15 @@
 # Timeline
 - [Resultados](#resultados)
 - [Timeline](#timeline)
+  - [Teste simulação após: apenas uma thread / db conn por serviço](#teste-simulação-após-apenas-uma-thread--db-conn-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 2 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-2-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 4 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-4-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 6 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-6-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 8 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-8-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 10 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-10-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 15 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-15-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns para 25 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-para-25-por-serviço)
+  - [Teste simulação após: reduzir threads e db conns de 50 para 35 por serviço](#teste-simulação-após-reduzir-threads-e-db-conns-de-50-para-35-por-serviço)
   - [Teste simulação após: Validação pré branco e alteração docker file](#teste-simulação-após-validação-pré-branco-e-alteração-docker-file)
   - [Teste simulação após: Alteração busca sql](#teste-simulação-após-alteração-busca-sql)
   - [Teste simulação após: compilar api com -O3](#teste-simulação-após-compilar-api-com--o3)
@@ -16,6 +25,62 @@
   - [Teste simulação após implementação de connection pool](#teste-simulação-após-implementação-de-connection-pool)
   - [Primeiro teste com simulação oficial da rinha](#primeiro-teste-com-simulação-oficial-da-rinha)
   - [Primeiro teste 100% sucesso com a primeira versão da simulação da rinha](#primeiro-teste-100-sucesso-com-a-primeira-versão-da-simulação-da-rinha)
+
+## Teste simulação após: apenas uma thread / db conn por serviço
+
+Tempo médio de resposta em 2ms
+
+![](images/image-22.png)
+
+Insert count: 46907
+
+## Teste simulação após: reduzir threads e db conns para 2 por serviço
+
+![](images/image-21.png)
+
+Insert count: 46927
+
+## Teste simulação após: reduzir threads e db conns para 4 por serviço
+
+![](images/image-20.png)
+
+Insert count: 46913
+
+## Teste simulação após: reduzir threads e db conns para 6 por serviço
+
+![](images/image-19.png)
+
+Insert count: 46931
+
+## Teste simulação após: reduzir threads e db conns para 8 por serviço
+
+![](images/image-18.png)
+
+Insert count: 46912
+
+## Teste simulação após: reduzir threads e db conns para 10 por serviço
+
+![](images/image-17.png)
+
+Insert count: 46915
+
+## Teste simulação após: reduzir threads e db conns para 15 por serviço
+
+![](images/image-16.png)
+
+Insert count: 46921
+
+## Teste simulação após: reduzir threads e db conns para 25 por serviço
+
+![](images/image-15.png)
+
+Insert count: 46906
+
+## Teste simulação após: reduzir threads e db conns de 50 para 35 por serviço
+
+![](images/image-14.png)
+
+Insert count: 46907
 
 ## Teste simulação após: Validação pré branco e alteração docker file
 

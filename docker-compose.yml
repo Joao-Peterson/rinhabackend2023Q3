@@ -5,8 +5,8 @@ services:
     image: rinhabackend2023q3capi
     environment:
       - SERVER_PORT=5001
-      - SERVER_DB_CONNS=50
-      - SERVER_THREADS=50
+      - SERVER_DB_CONNS=1
+      - SERVER_THREADS=1
       - SERVER_WORKERS=1
       - DB_HOST=localhost
       - DB_PORT=5432
@@ -28,8 +28,8 @@ services:
     <<: *apiconf
     environment:
       - SERVER_PORT=5002
-      - SERVER_DB_CONNS=50
-      - SERVER_THREADS=50
+      - SERVER_DB_CONNS=1
+      - SERVER_THREADS=1
       - SERVER_WORKERS=1
       - DB_HOST=localhost
       - DB_PORT=5432

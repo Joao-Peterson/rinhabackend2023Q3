@@ -57,7 +57,7 @@ int main(int argq, char **argv, char **envp){
 		exit(2);
 	}
 
-	printf("Creating postgres connections\n");
+	printf("Creating postgres connections [%d]\n", conns);
 	db_connect(db);
 
 	bool wait = true;
@@ -84,6 +84,7 @@ int main(int argq, char **argv, char **envp){
 	// webserver setup
 	http_listen(port, NULL, .on_request = on_request, .log = false);
 
+	printf("Starting webserver with [%d] threads\n", threads);
 	printf("Webserver listening on port: [%s]\n", port);
 	fio_start(.threads = threads, .workers = workers);
 
