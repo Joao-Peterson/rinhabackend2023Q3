@@ -5,8 +5,8 @@ services:
     image: rinhabackend2023q3capi
     environment:
       - SERVER_PORT=5001
-      - SERVER_DB_CONNS=75
-      - SERVER_THREADS=75
+      - SERVER_DB_CONNS=50
+      - SERVER_THREADS=50
       - SERVER_WORKERS=1
       - DB_HOST=localhost
       - DB_PORT=5432
@@ -21,15 +21,15 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
+          cpus: '0.1'
           memory: '0.5GB'
           
   api2:
     <<: *apiconf
     environment:
       - SERVER_PORT=5002
-      - SERVER_DB_CONNS=45
-      - SERVER_THREADS=45
+      - SERVER_DB_CONNS=50
+      - SERVER_THREADS=50
       - SERVER_WORKERS=1
       - DB_HOST=localhost
       - DB_PORT=5432
@@ -48,7 +48,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
+          cpus: '0.1'
           memory: '0.5GB'
 
   db:
@@ -71,5 +71,5 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.05'
+          cpus: '1.2'
           memory: '1.5GB'

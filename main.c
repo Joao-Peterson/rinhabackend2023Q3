@@ -76,7 +76,7 @@ int main(int argq, char **argv, char **envp){
 	}
 
 	// webserver setup
-	http_listen(port, NULL, .on_request = on_request, .log = 1);
+	http_listen(port, NULL, .on_request = on_request, .log = false);
 
 	printf("Starting server on port: [%s]\n", port);
 	fio_start(.threads = threads, .workers = workers);

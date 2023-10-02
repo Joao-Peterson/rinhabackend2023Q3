@@ -19,6 +19,7 @@ Queria fazer no pêlo mesmo, mas como estava em cima da hora vou fazer com o [fa
 	- [.env](#env)
 - [TODO](#todo)
 - [Takeaways](#takeaways)
+- [Progress](#progress)
 
 # Execução
 
@@ -311,3 +312,7 @@ loadEnvVars(NULL);
 * Containers docker em modo `network_mode: host` são masi performantes. Ao que tudo indica, a network padrão modo bridge possuí processamente extra sobre ele que afeta o desempenho, enquanto que quando se usa o host não há essa limitação
 * Webservers performantes usam uma thread para cada conexão, utilizando uma thread pool como mecanismo para tal 
 * Similarmente, queries para banco de dados usam uma conexão para cada thread, utilizando uma connection pool 
+
+# Progress
+
+Progresso feito através dos testes, documentando alterações, resultados e descobertas se encontra em [RESULTADOS.md](RESULTADOS.md).
