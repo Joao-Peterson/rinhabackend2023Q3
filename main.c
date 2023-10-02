@@ -8,6 +8,7 @@
 #include "src/utils.h"
 #include "src/db.h"
 #include "models/pessoas.h"
+#include "models/date.h"
 
 // handlers
 void on_request(http_s *h);
@@ -26,6 +27,8 @@ db_t *db;
 
 // main
 int main(int argq, char **argv, char **envp){
+
+	printf("Starting webserver...\n");
 
 	// try load env var from env file
 	loadEnvVars(NULL);
@@ -54,6 +57,7 @@ int main(int argq, char **argv, char **envp){
 		exit(2);
 	}
 
+	printf("Creating postgres connections\n");
 	db_connect(db);
 
 	bool wait = true;
@@ -64,7 +68,7 @@ int main(int argq, char **argv, char **envp){
 
 			case db_state_invalid_db:
 			case db_state_failed_connection:
-				printf("Failed to connect to db\n");
+				printf("Failed to create connections to postgres db\n");
 				db_destroy(db);
 				exit(1);
 				break;
@@ -75,10 +79,12 @@ int main(int argq, char **argv, char **envp){
 		}
 	}
 
+	printf("Postgres connections up!\n");
+
 	// webserver setup
 	http_listen(port, NULL, .on_request = on_request, .log = false);
 
-	printf("Starting server on port: [%s]\n", port);
+	printf("Webserver listening on port: [%s]\n", port);
 	fio_start(.threads = threads, .workers = workers);
 
 	printf("Stopping server...\n");
@@ -254,16 +260,37 @@ void on_post(http_s *h){
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "apelido", 7);
 	char *apelido   	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
+	if(strlen(apelido) > 32){
+		h->status = http_status_code_UnprocessableEntity;
+		http_send_body(h, "Apelido maior que 32 caracteres", 31);
+		fiobj_free(key);
+		return;
+	}
 
 	// nome
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "nome", 4);
 	char *nome      	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
+	if(strlen(nome) > 100){
+		h->status = http_status_code_UnprocessableEntity;
+		http_send_body(h, "Nome maior que 100 caracteres", 29);
+		fiobj_free(key);
+		return;
+	}
 
 	// nascimento
 	fiobj_str_clear(key);
 	fiobj_str_write(key, "nascimento", 10);
 	char *nascimento	= fiobj_obj2cstr(fiobj_hash_get(h->params, key)).data;
+	if(
+		(strlen(nascimento) != 10) ||
+		(!date_check(nascimento))
+	){
+		h->status = http_status_code_UnprocessableEntity;
+		http_send_body(h, "Idade de nascimento inválida (YYYY-MM-DD)", 42);
+		fiobj_free(key);
+		return;
+	}
 
 	// stack
 	fiobj_str_clear(key);
@@ -271,6 +298,9 @@ void on_post(http_s *h){
 
 	FIOBJ stackobj = fiobj_hash_get(h->params, key);
 	size_t stacksize;
+
+	fiobj_free(key);
+
 	db_results_t *res;
 
 	if(
@@ -289,6 +319,13 @@ void on_post(http_s *h){
 		// stack value
 		for(size_t i = 0; i < stacksize; i++){
 			stack[i] = fiobj_obj2cstr(fiobj_ary_index(stackobj, i)).data;
+
+			if(strlen(stack[i]) > 32){
+				h->status = http_status_code_UnprocessableEntity;
+				http_send_body(h, "Uma das stacks é maior que 32 caracteres", 41);
+				fiobj_free(key);
+				return;
+			}
 		}
 
 		res = pessoas_insert(db, nome, apelido, nascimento, stacksize, stack);
@@ -354,8 +391,6 @@ void on_post(http_s *h){
 			break;
 	}
 
-	// free stuff
-	fiobj_free(key);
 	db_results_destroy(res);
 }
 

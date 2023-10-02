@@ -305,13 +305,14 @@ loadEnvVars(NULL);
 # TODO
 
 - Redis Cache
-- Correct search on databae, remove LIKE type search
 
 # Takeaways
 
 * Containers docker em modo `network_mode: host` são masi performantes. Ao que tudo indica, a network padrão modo bridge possuí processamente extra sobre ele que afeta o desempenho, enquanto que quando se usa o host não há essa limitação
 * Webservers performantes usam uma thread para cada conexão, utilizando uma thread pool como mecanismo para tal 
 * Similarmente, queries para banco de dados usam uma conexão para cada thread, utilizando uma connection pool 
+* Base de dados gastam bastante cpu e memória, gargala demais
+* Desativar logging desnecessário 
 
 # Progress
 

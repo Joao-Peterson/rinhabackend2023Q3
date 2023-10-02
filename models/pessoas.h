@@ -26,14 +26,10 @@ db_results_t *pessoas_insert(db_t *db, char *nome, char *apelido, char *nascimen
 
 // search
 db_results_t *pessoas_select_search(db_t *db, char *searchParam, unsigned int limit){
-	char *query = "select * "
+	char *query = "select id, apelido, nome, nascimento, stack "
 		"from pessoas "
-		"where ("
-			"apelido ilike '%' || $1 || '%' or "
-			"nome ilike '%' || $1 || '%' or "
-			"$1 = any(stack)"
-		") limit $2;";
-
+		"where search like $1 "
+		"limit $2;";
 
 	return db_exec(db, query, 2, 
 		db_param_string(searchParam),
@@ -43,7 +39,7 @@ db_results_t *pessoas_select_search(db_t *db, char *searchParam, unsigned int li
 
 // search
 db_results_t *pessoas_select_uuid(db_t *db, char *uuid){
-	char *query = "select * "
+	char *query = "select id, apelido, nome, nascimento, stack "
 		"from pessoas "
 		"where id = $1";
 

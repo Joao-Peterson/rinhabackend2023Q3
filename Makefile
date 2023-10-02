@@ -18,7 +18,7 @@ C_FLAGS=-Wall -Wpedantic
 C_FLAGS_RELEASE=-O3
 C_FLAGS_DEBUG=-g
 # C_FLAGS_DEBUG+=-D DEBUG
-I_FLAGS=-Isrc
+I_FLAGS=-Isrc -Imodels
 I_FLAGS+=-Ifacil.io
 LD_FLAGS=
 LD_FLAGS+=-lpthread
@@ -112,7 +112,7 @@ profile : build
 ### Docker stuff
 
 # create image
-image :
+image : clear
 	sudo docker build -t rinhabackend2023q3capi .
 
 # compose up
