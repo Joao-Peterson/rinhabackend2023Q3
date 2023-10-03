@@ -4,106 +4,61 @@ Meu projeto para [rinha de backend 2023 Q3](https://github.com/zanfranceschi/rin
 
 Queria fazer no pêlo mesmo, mas como estava em cima da hora vou fazer com o [facil.io](https://facil.io), uma biblioteca C que traz um web server performante + mini http framework. Special thanks to [boazsegev](https://github.com/boazsegev/facil.io) for the lib!
 
+Lib do próprio postgres para conexão com a db. Sem caching externo, como Redis por exemplo.
+
 # Sumário
 - [Rinha de gal... backend](#rinha-de-gal-backend)
 - [Sumário](#sumário)
-- [Execução](#execução)
-	- [Local](#local)
-	- [Docker compose](#docker-compose)
-- [Utilização](#utilização)
-- [Gatling](#gatling)
+- [Performance](#performance)
 - [Funcionamento](#funcionamento)
 	- [Web](#web)
 		- [Roteamento](#roteamento)
 	- [Banco de dados](#banco-de-dados)
 	- [.env](#env)
 - [Takeaways](#takeaways)
-- [Progress](#progress)
+- [Resultados](#resultados)
+- [Execução](#execução)
+	- [Local](#local)
+	- [Docker compose](#docker-compose)
+- [Utilização](#utilização)
+- [Gatling](#gatling)
+- [TODO](#todo)
 
-# Execução
+# Performance
 
-Dependencies:
-* make
-* gcc
-* docker
-* docker-compose
-* java 8
+Muito boa aperformance 👍
 
-## Local
+Abaixo pode-se ver a performance da versão final do sistema. Contagem final: `+-46931` 
 
-Compilar projeto em modo release local
+![](images/image-19.png)
 
-```console
-$ make release
-```
+Referência rápida da configuração:
 
-Copiar o `.env.template` para `.env` e colocar sua config.
+* [Nginx](https://www.nginx.com/blog/tuning-nginx/)
+  * Workers: 1024 (testado até com 512 sem problemas)
+  * epoll
+  * Access log off
+  * Keepalive
+  * Caching
+* Postgresql
+  * Docker compose health check
+  * Campo de busca (`generated` nome, apelido, stack) e indexação com trigrama
+* Api
+  * Thread pool. Tamanho da pool usada na versão final: `[1]`
+  * Connection pool. Tamanho da pool usada na versão final: `[1]`
+  * Libs
+    * [libpq](https://www.postgresql.org/docs/16/libpq.html): postgresql lib
+    * [facil.io](https://facil.io): webserver, http handling, thread pool, json
+* Docker compose
+  * Network mode como `host` para todos os serviços
+* Recursos:
 
-`.env`:
-```ini
-SERVER_PORT=5000  	# porta que o servidor vai escutar
-SERVER_DB_CONNS=10	# quantidade de conexões simultâneas com o db
-SERVER_THREADS=25 	# quantidade de threads a serem usadas para o servidor 
-SERVER_WORKERS=5  	# quantidade de processos a serem usado para o servidor
-DB_HOST=          	# endereço do db
-DB_PORT=          	# porta do db
-DB_DATABASE=      	# nome da db
-DB_USER=          	# usuário da db
-DB_PASSWORD=      	# senha do usuário da db
-```
-
-**(Opcional)**: Subir o banco postgres com docker compose:
-```console
-$ sudo docker-compose up db -d 
-```
-
-Para usar a db do compose, configurar o `.env` como:
-
-```ini
-DB_HOST=localhost
-DB_PORT=5432
-DB_DATABASE=capi
-DB_USER=capi
-DB_PASSWORD=rinhadegalo
-```
-
-Executar:
-
-```console
-$ ./webserver
-```
-
-## Docker compose 
-
-Já configurado para rinha com: [docker-compose.yml](docker-compose.yml).
-
-**Atenção a senha, pois `sudo` será usado por causa do `docker`!**
-
-```console
-$ make up
-```
-
-* **Utiliza `port=9999`.**
-
-# Utilização
-
-Endpoints conforme definido nas [intruções da rinha](https://github.com/zanfranceschi/rinha-de-backend-2023-q3/blob/main/INSTRUCOES.md#endpoints).
-
-Request insomnia v4 em: [insomnia/Insomnia.json](insomnia/Insomnia.json)
-
-# Gatling
-
-Para realizar o stress test com o gatling, basta executar:
-
-```console
-$ make gatling
-```
-
-Obs:
-* O gatling será instalado em [gatling/gatling/](gatling/gatling/).
-* Os dados em [gatling/resources;](gatling/resources) e o cenário scala [gatling/simulations/RinhaBackendSimulation.scala](gatling/simulations/RinhaBackendSimulation.scala) são os mesmos definidos no [repositório da rinha](https://github.com/zanfranceschi/rinha-de-backend-2023-q3/tree/main/stress-test/user-files).
-* Resultados estarão em [gatling/results/](gatling/results/).
-* Contagem final será salva em `count.txt`.
+| serviço 		| cpu (cores) 	| memória ram(gb) |
+|-				|-				|-|
+| api 1 		| 0.1 			| 0.5 gb|
+| api 2 		| 0.1 			| 0.5 gb|
+| nginx 		| 0.1 			| 0.5 gb|
+| postgresql 	| 1.2 			| 1.5 gb|
 
 # Funcionamento
 
@@ -311,6 +266,95 @@ loadEnvVars(NULL);
 * Busca em database é custoso, uma solução é concatenar os termos utilizados na busca, como nome e apelido, em uma coluna gerada pelo banco, e aplicar indexação nela, nesssa implementação foi usado indexação poir trigrama, gist op. Outra solução poderia seria uma full text search 
 * O balanço desejado é de os serviços poderem aguetnar as conexões dadas pelo nginx e que a database acompanhe o ritmo das api's. Portanto, quem dita o ritmo de tudo é o balanceador de carga, que vai limitar as conexões repassadas as api's, api's que devem suportar essa carga tendo uma relação aproximada de 1:1 de threads para db connections, sem usar muitas connections para não gastar muita memória e cpu do banco. Nessa inmplementação uma razão de `1024 nginx workers >> 2 api's de 50 threads / connections cada`.
 
-# Progress
+# Resultados
 
 Progresso feito através dos testes, documentando alterações, resultados e descobertas se encontra em [RESULTADOS.md](RESULTADOS.md).
+
+# Execução
+
+Dependencies:
+* make
+* gcc
+* docker
+* docker-compose
+* java 8
+
+## Local
+
+Compilar projeto em modo release local
+
+```console
+$ make release
+```
+
+Copiar o `.env.template` para `.env` e colocar sua config.
+
+`.env`:
+```ini
+SERVER_PORT=5000  	# porta que o servidor vai escutar
+SERVER_DB_CONNS=10	# quantidade de conexões simultâneas com o db
+SERVER_THREADS=25 	# quantidade de threads a serem usadas para o servidor 
+SERVER_WORKERS=5  	# quantidade de processos a serem usado para o servidor
+DB_HOST=          	# endereço do db
+DB_PORT=          	# porta do db
+DB_DATABASE=      	# nome da db
+DB_USER=          	# usuário da db
+DB_PASSWORD=      	# senha do usuário da db
+```
+
+**(Opcional)**: Subir o banco postgres com docker compose:
+```console
+$ sudo docker-compose up db -d 
+```
+
+Para usar a db do compose, configurar o `.env` como:
+
+```ini
+DB_HOST=localhost
+DB_PORT=5432
+DB_DATABASE=capi
+DB_USER=capi
+DB_PASSWORD=rinhadegalo
+```
+
+Executar:
+
+```console
+$ ./webserver
+```
+
+## Docker compose 
+
+Já configurado para rinha com: [docker-compose.yml](docker-compose.yml).
+
+**Atenção a senha, pois `sudo` será usado por causa do `docker`!**
+
+```console
+$ make up
+```
+
+* **Utiliza `port=9999`.**
+
+# Utilização
+
+Endpoints conforme definido nas [intruções da rinha](https://github.com/zanfranceschi/rinha-de-backend-2023-q3/blob/main/INSTRUCOES.md#endpoints).
+
+Request insomnia v4 em: [insomnia/Insomnia.json](insomnia/Insomnia.json)
+
+# Gatling
+
+Para realizar o stress test com o gatling, basta executar:
+
+```console
+$ make gatling
+```
+
+Obs:
+* O gatling será instalado em [gatling/gatling/](gatling/gatling/).
+* Os dados em [gatling/resources;](gatling/resources) e o cenário scala [gatling/simulations/RinhaBackendSimulation.scala](gatling/simulations/RinhaBackendSimulation.scala) são os mesmos definidos no [repositório da rinha](https://github.com/zanfranceschi/rinha-de-backend-2023-q3/tree/main/stress-test/user-files).
+* Resultados estarão em [gatling/results/](gatling/results/).
+* Contagem final será salva em `count.txt`.
+
+# TODO
+
+* Usar unix sockets entre nginx e as apis
